@@ -3,6 +3,7 @@ function Maze(args) {
     width: 20,
     height: 20,
     wallSize: 1,
+    passageSize: 1,
     entryType: "",
     bias: "",
     color: "#fb0000ff",
@@ -26,7 +27,11 @@ function Maze(args) {
   this.wallsRemoved = 0;
   this.width = parseInt(settings["width"], 10);
   this.height = parseInt(settings["height"], 10);
-  this.wallSize = parseInt(settings["wallSize"], 10);
+  const parsedWallSize = parseInt(settings["wallSize"], 10);
+  const parsedPassageSize = parseInt(settings["passageSize"], 10);
+  this.wallThickness = Math.max(1, isNaN(parsedWallSize) ? 1 : parsedWallSize);
+  this.passageSize = Math.max(1, isNaN(parsedPassageSize) ? 1 : parsedPassageSize);
+  this.wallSize = this.wallThickness;
   this.removeWalls = parseInt(settings["removeWalls"], 10);
   this.entryNodes = this.getEntryNodes(settings["entryType"]);
   this.bias = settings["bias"];
@@ -38,6 +43,7 @@ function Maze(args) {
   this.maxCanvasDimension = parseInt(settings["maxCanvasDimension"], 10);
   this.maxSolve = parseInt(settings["maxSolve"], 1);
   this.maxWallsRemove = parseInt(settings["maxWallsRemove"], 10);
+  this.layoutCache = null;
 }
 
 Maze.prototype.generate = function () {
@@ -55,20 +61,117 @@ Maze.prototype.generate = function () {
 
 Maze.prototype.isValidSize = function () {
   const max = this.maxCanvasDimension;
-  const canvas_width = (this.width * 2 + 1) * this.wallSize;
-  const canvas_height = (this.height * 2 + 1) * this.wallSize;
+  const canvas = this.getCanvasSize();
 
   // Max dimension Firefox and Chrome
-  if (max && (max <= canvas_width || max <= canvas_height)) {
+  if (max && (max <= canvas.width || max <= canvas.height)) {
     return false;
   }
 
   // Max area (200 columns) * (200 rows) with wall size 10px
-  if (this.maxCanvas && this.maxCanvas <= canvas_width * canvas_height) {
+  if (this.maxCanvas && this.maxCanvas <= canvas.width * canvas.height) {
     return false;
   }
 
   return true;
+};
+
+Maze.prototype.computeLayout = function () {
+  const columns = this.width * 2 + 1;
+  const rows = this.height * 2 + 1;
+
+  const columnWidths = new Array(columns);
+  const columnStarts = new Array(columns);
+  let columnOffset = 0;
+
+  for (let i = 0; i < columns; i++) {
+    columnStarts[i] = columnOffset;
+    const width = i % 2 === 0 ? this.wallThickness : this.passageSize;
+    columnWidths[i] = width;
+    columnOffset += width;
+  }
+
+  const rowHeights = new Array(rows);
+  const rowStarts = new Array(rows);
+  let rowOffset = 0;
+
+  for (let i = 0; i < rows; i++) {
+    rowStarts[i] = rowOffset;
+    const height = i % 2 === 0 ? this.wallThickness : this.passageSize;
+    rowHeights[i] = height;
+    rowOffset += height;
+  }
+
+  return {
+    columnWidths,
+    columnStarts,
+    rowHeights,
+    rowStarts,
+    canvasWidth: columnOffset,
+    canvasHeight: rowOffset,
+    width: this.width,
+    height: this.height,
+    wallThickness: this.wallThickness,
+    passageSize: this.passageSize,
+  };
+};
+
+Maze.prototype.getLayout = function () {
+  if (
+    !this.layoutCache ||
+    this.layoutCache.width !== this.width ||
+    this.layoutCache.height !== this.height ||
+    this.layoutCache.wallThickness !== this.wallThickness ||
+    this.layoutCache.passageSize !== this.passageSize
+  ) {
+    this.layoutCache = this.computeLayout();
+  }
+
+  return this.layoutCache;
+};
+
+Maze.prototype.getCanvasSize = function () {
+  const layout = this.getLayout();
+  return { width: layout.canvasWidth, height: layout.canvasHeight };
+};
+
+Maze.prototype.getColumnRect = function (index) {
+  const layout = this.getLayout();
+  return { x: layout.columnStarts[index], width: layout.columnWidths[index] };
+};
+
+Maze.prototype.getRowRect = function (index) {
+  const layout = this.getLayout();
+  return { y: layout.rowStarts[index], height: layout.rowHeights[index] };
+};
+
+Maze.prototype.getCellRect = function (x, y) {
+  const columnRect = this.getColumnRect(x);
+  const rowRect = this.getRowRect(y);
+  return {
+    x: columnRect.x,
+    y: rowRect.y,
+    width: columnRect.width,
+    height: rowRect.height,
+  };
+};
+
+Maze.prototype.getColumnSpan = function (start, end) {
+  const layout = this.getLayout();
+  const from = Math.min(start, end);
+  const to = Math.max(start, end);
+  const x = layout.columnStarts[from];
+  const width = layout.columnStarts[to] + layout.columnWidths[to] - x;
+  return { x, width };
+};
+
+Maze.prototype.getRowSpan = function (start, end) {
+  const layout = this.getLayout();
+  const from = Math.min(start, end);
+  const to = Math.max(start, end);
+  const y = layout.rowStarts[from];
+  const height = layout.rowStarts[to] + layout.rowHeights[to] - y;
+  return { y, height };
 };
 
 Maze.prototype.generateNodes = function () {
@@ -403,8 +506,9 @@ Maze.prototype.draw = function () {
     return;
   }
 
-  canvas.width = (this.width * 2 + 1) * this.wallSize;
-  canvas.height = (this.height * 2 + 1) * this.wallSize;
+  const layout = this.getLayout();
+  canvas.width = layout.canvasWidth;
+  canvas.height = layout.canvasHeight;
 
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -419,9 +523,6 @@ Maze.prototype.draw = function () {
   const row_count = this.matrix.length;
   const gateEntry = getEntryNode(this.entryNodes, "start", true);
   const gateExit = getEntryNode(this.entryNodes, "end", true);
-  const stroke = Math.max(1, Math.round(this.wallSize * 0.4));
-  const offset = Math.floor((this.wallSize - stroke) / 2);
-
   for (let i = 0; i < row_count; i++) {
     let row_length = this.matrix[i].length;
     for (let j = 0; j < row_length; j++) {
@@ -435,65 +536,8 @@ Maze.prototype.draw = function () {
       }
       let pixel = parseInt(this.matrix[i].charAt(j), 10);
       if (pixel) {
-        const isEvenRow = i % 2 === 0;
-        const isEvenCol = j % 2 === 0;
-        const isTopEdge = i === 0;
-        const isBottomEdge = i === row_count - 1;
-        const isLeftEdge = j === 0;
-        const isRightEdge = j === row_length - 1;
-
-        const baseX = j * this.wallSize;
-        const baseY = i * this.wallSize;
-        const nextX = baseX + this.wallSize;
-        const nextY = baseY + this.wallSize;
-
-        let x = baseX;
-        let y = baseY;
-        let width = this.wallSize;
-        let height = this.wallSize;
-
-        if (isEvenRow && !isEvenCol) {
-          // Horizontal wall segment
-          height = stroke;
-          if (isTopEdge) {
-            y = baseY;
-          } else if (isBottomEdge) {
-            y = nextY - stroke;
-          } else {
-            y = baseY + offset;
-          }
-        } else if (!isEvenRow && isEvenCol) {
-          // Vertical wall segment
-          width = stroke;
-          if (isLeftEdge) {
-            x = baseX;
-          } else if (isRightEdge) {
-            x = nextX - stroke;
-          } else {
-            x = baseX + offset;
-          }
-        } else if (isEvenRow && isEvenCol) {
-          // Wall intersection
-          width = stroke;
-          height = stroke;
-          if (isLeftEdge) {
-            x = baseX;
-          } else if (isRightEdge) {
-            x = nextX - stroke;
-          } else {
-            x = baseX + offset;
-          }
-
-          if (isTopEdge) {
-            y = baseY;
-          } else if (isBottomEdge) {
-            y = nextY - stroke;
-          } else {
-            y = baseY + offset;
-          }
-        }
-
-        ctx.fillRect(x, y, width, height);
+        const rect = this.getCellRect(j, i);
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
       }
     }
   }

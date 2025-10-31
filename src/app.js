@@ -3,6 +3,8 @@ let mazeNodes = {};
 
 const wallSizeInput = document.getElementById("wall-size");
 const wallSizeValue = document.getElementById("wall-size-value");
+const passageSizeInput = document.getElementById("passage-size");
+const passageSizeValue = document.getElementById("passage-size-value");
 
 if (wallSizeInput && wallSizeValue) {
   const updateWallSizeDisplay = () => {
@@ -13,6 +15,22 @@ if (wallSizeInput && wallSizeValue) {
 
   wallSizeInput.addEventListener("input", () => {
     updateWallSizeDisplay();
+
+    if (mazeNodes.matrix && mazeNodes.matrix.length) {
+      initMaze();
+    }
+  });
+}
+
+if (passageSizeInput && passageSizeValue) {
+  const updatePassageSizeDisplay = () => {
+    passageSizeValue.textContent = `${passageSizeInput.value} px`;
+  };
+
+  updatePassageSizeDisplay();
+
+  passageSizeInput.addEventListener("input", () => {
+    updatePassageSizeDisplay();
 
     if (mazeNodes.matrix && mazeNodes.matrix.length) {
       initMaze();
@@ -64,6 +82,7 @@ function initMaze() {
     width: getInputIntVal("width", 20),
     height: getInputIntVal("height", 20),
     wallSize: getInputIntVal("wall-size", 10),
+    passageSize: getInputIntVal("passage-size", 10),
     removeWalls: getInputIntVal("remove_walls", 0),
     entryType: "",
     bias: "",

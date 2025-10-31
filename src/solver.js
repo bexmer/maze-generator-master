@@ -351,21 +351,21 @@ Solver.prototype.walkMaze = function(nodes) {
 }
 
 Solver.prototype.drawAstarSolve = function() {
-	const nodes = this.path;
-	const wallSize = this.maze.wallSize;
+        const nodes = this.path;
 
-	const canvas = document.getElementById('maze');
-	if (!canvas || !nodes.length || !this.solved) {
-		return;
-	}
+        const canvas = document.getElementById('maze');
+        if (!canvas || !nodes.length || !this.solved) {
+                return;
+        }
 
-	const canvas_width = ((this.maze.width * 2) + 1) * wallSize;
-	const canvas_height = ((this.maze.height * 2) + 1) * wallSize;
+        const layout = this.maze.getLayout();
+        const canvas_width = layout.canvasWidth;
+        const canvas_height = layout.canvasHeight;
 
-	if (!((canvas.width === canvas_width) && (canvas.height === canvas_height))) {
-		// Error: Not the expected canvas size.
-		return;
-	}
+        if (!((canvas.width === canvas_width) && (canvas.height === canvas_height))) {
+                // Error: Not the expected canvas size.
+                return;
+        }
 
 	const ctx = canvas.getContext('2d');
 	ctx.fillStyle = this.maze.solveColor;
@@ -375,72 +375,58 @@ Solver.prototype.drawAstarSolve = function() {
 	let finished = false
 	let node = false;
 
-	const hasGates = (false !== this.start) && (false !== this.finish);
-	if (hasGates) {
-		startNode = this.start;
-		endNode = this.finish;
-		const gateEntry = getEntryNode(this.maze.entryNodes, 'start', true);
+        const hasGates = (false !== this.start) && (false !== this.finish);
+        if (hasGates) {
+                startNode = this.start;
+                endNode = this.finish;
+                const gateEntry = getEntryNode(this.maze.entryNodes, 'start', true);
+                const rect = this.maze.getCellRect(gateEntry.x, gateEntry.y);
+                ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
 
-		ctx.fillRect((gateEntry.x * wallSize), (gateEntry.y * wallSize), wallSize, wallSize);
-	}
-
-	for (let i = nodes.length - 1; i >= 0; i--) {
-		if (!(0 <= (i - 1))) {
-			continue;
+        for (let i = nodes.length - 1; i >= 0; i--) {
+                if (!(0 <= (i - 1))) {
+                        continue;
 		}
 
-		let previousX = nodes[i - 1].x;
-		let previousY = nodes[i - 1].y;
+                let previousX = nodes[i - 1].x;
+                let previousY = nodes[i - 1].y;
+                if (nodes[i].y === previousY) {
+                        const span = this.maze.getColumnSpan(nodes[i].x, previousX);
+                        const rowRect = this.maze.getRowRect(nodes[i].y);
+                        ctx.fillRect(span.x, rowRect.y, span.width, rowRect.height);
+                }
 
-		let start;
-		let to_x;
-		if (nodes[i].y === previousY) {
-			let start = nodes[i].x
-			let to_x = ((previousX - start) * wallSize) + wallSize;
+                if (nodes[i].x === previousX) {
+                        const span = this.maze.getRowSpan(nodes[i].y, previousY);
+                        const columnRect = this.maze.getColumnRect(nodes[i].x);
+                        ctx.fillRect(columnRect.x, span.y, columnRect.width, span.height);
+                }
+        }
 
-			if (nodes[i].x > previousX) {
-				start = previousX
-				to_x = ((nodes[i].x - previousX) * wallSize) + wallSize;
-			}
-
-			ctx.fillRect((start * wallSize), (nodes[i].y * wallSize), to_x, wallSize);
-		}
-
-		if (nodes[i].x === previousX) {
-			let start = nodes[i].y;
-			let to_y = ((previousY - start) * wallSize) + wallSize;
-
-			if (nodes[i].y > previousY) {
-				start = previousY;
-				to_y = ((nodes[i].y - previousY) * wallSize) + wallSize;
-			}
-
-			ctx.fillRect((nodes[i].x * wallSize), (start * wallSize), wallSize, to_y);
-		}
-	}
-
-	if (hasGates) {
-		const gateExit = getEntryNode(this.maze.entryNodes, 'end', true);
-		ctx.fillRect((gateExit.x * wallSize), (gateExit.y * wallSize), wallSize, wallSize);
-	}
+        if (hasGates) {
+                const gateExit = getEntryNode(this.maze.entryNodes, 'end', true);
+                const rect = this.maze.getCellRect(gateExit.x, gateExit.y);
+                ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
 }
 
 Solver.prototype.draw = function() {
-	const nodes = this.path;
-	const wallSize = this.maze.wallSize;
+        const nodes = this.path;
 
-	const canvas = document.getElementById('maze');
-	if (!canvas || !nodes.length || !this.solved) {
-		return;
-	}
+        const canvas = document.getElementById('maze');
+        if (!canvas || !nodes.length || !this.solved) {
+                return;
+        }
 
-	const canvas_width = ((this.maze.width * 2) + 1) * wallSize;
-	const canvas_height = ((this.maze.height * 2) + 1) * wallSize;
+        const layout = this.maze.getLayout();
+        const canvas_width = layout.canvasWidth;
+        const canvas_height = layout.canvasHeight;
 
-	if (!((canvas.width === canvas_width) && (canvas.height === canvas_height))) {
-		// Error: Not the expected canvas size.
-		return;
-	}
+        if (!((canvas.width === canvas_width) && (canvas.height === canvas_height))) {
+                // Error: Not the expected canvas size.
+                return;
+        }
 
 	const ctx = canvas.getContext('2d');
 	ctx.fillStyle = this.maze.solveColor;
@@ -452,18 +438,18 @@ Solver.prototype.draw = function() {
 	let finished = false
 	let node = false;
 
-	const hasGates = (false !== this.start) && (false !== this.finish);
-	if (hasGates) {
-		startNode = this.start;
-		endNode = this.finish;
-		const gateEntry = getEntryNode(this.maze.entryNodes, 'start', true);
+        const hasGates = (false !== this.start) && (false !== this.finish);
+        if (hasGates) {
+                startNode = this.start;
+                endNode = this.finish;
+                const gateEntry = getEntryNode(this.maze.entryNodes, 'start', true);
+                const rect = this.maze.getCellRect(gateEntry.x, gateEntry.y);
+                ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
 
-		ctx.fillRect((gateEntry.x * wallSize), (gateEntry.y * wallSize), wallSize, wallSize);
-	}
-
-	while (finished === false) {
-		max++
-		if (this.maxSolve && (this.maxSolve < max)) {
+        while (finished === false) {
+                max++
+                if (this.maxSolve && (this.maxSolve < max)) {
 			alert('Solving maze took too long. Please try again or use smaller maze dimensions');
 			break
 		}
@@ -488,37 +474,26 @@ Solver.prototype.draw = function() {
 		}
 
 		i = node.connected[node.previous];
-		let connected_node = nodes[i];
+                let connected_node = nodes[i];
 
-		if (-1 !== ['w', 'e'].indexOf(node.previous)) {
-			let start = node.x
-			let to_x = ((connected_node.x - start) * wallSize) + wallSize;
+                if (-1 !== ['w', 'e'].indexOf(node.previous)) {
+                        const span = this.maze.getColumnSpan(node.x, connected_node.x);
+                        const rowRect = this.maze.getRowRect(node.y);
+                        ctx.fillRect(span.x, rowRect.y, span.width, rowRect.height);
+                }
 
-			if ('w' === node.previous) {
-				start = connected_node.x
-				to_x = ((node.x - connected_node.x) * wallSize) + wallSize;
-			}
+                if (-1 !== ['n', 's'].indexOf(node.previous)) {
+                        const span = this.maze.getRowSpan(node.y, connected_node.y);
+                        const columnRect = this.maze.getColumnRect(node.x);
+                        ctx.fillRect(columnRect.x, span.y, columnRect.width, span.height);
+                }
 
-			ctx.fillRect((start * wallSize), (node.y * wallSize), to_x, wallSize);
-		}
+                node = nodes[i];
+        }
 
-		if (-1 !== ['n', 's'].indexOf(node.previous)) {
-			let start = node.y;
-			let to_y = ((connected_node.y - start) * wallSize) + wallSize;
-
-			if ('n' === node.previous) {
-				start = connected_node.y
-				to_y = ((node.y - connected_node.y) * wallSize) + wallSize;
-			}
-
-			ctx.fillRect((node.x * wallSize), (start * wallSize), wallSize, to_y);
-		}
-
-		node = nodes[i];
-	}
-
-	if (hasGates) {
-		const gateExit = getEntryNode(this.maze.entryNodes, 'end', true);
-		ctx.fillRect((gateExit.x * wallSize), (gateExit.y * wallSize), wallSize, wallSize);
-	}
+        if (hasGates) {
+                const gateExit = getEntryNode(this.maze.entryNodes, 'end', true);
+                const rect = this.maze.getCellRect(gateExit.x, gateExit.y);
+                ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
 }
