@@ -43,6 +43,10 @@
 			.color-picker {
 				margin-left: 5px;
 			}
+			.value-display {
+				margin-left: 0.75em;
+				font-size: 0.9em;
+			}
 			.palette {
 				margin: 1.5em 0 0 10em;
 				width: 270px;
@@ -118,7 +122,8 @@
 		<div class="controls">
 			<p>
 				<label for="wall-size">Wall thickness:</label>
-				<input id="wall-size" type="number" name="" value="10" min="1">
+				<input id="wall-size" type="range" name="wall-size" value="10" min="1" max="40">
+				<span id="wall-size-value" class="value-display">10 px</span>
 			</p>
 
 			<p>

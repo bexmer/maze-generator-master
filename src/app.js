@@ -1,6 +1,25 @@
 // Global variables
 let mazeNodes = {};
 
+const wallSizeInput = document.getElementById("wall-size");
+const wallSizeValue = document.getElementById("wall-size-value");
+
+if (wallSizeInput && wallSizeValue) {
+  const updateWallSizeDisplay = () => {
+    wallSizeValue.textContent = `${wallSizeInput.value} px`;
+  };
+
+  updateWallSizeDisplay();
+
+  wallSizeInput.addEventListener("input", () => {
+    updateWallSizeDisplay();
+
+    if (mazeNodes.matrix && mazeNodes.matrix.length) {
+      initMaze();
+    }
+  });
+}
+
 // Check if globals are defined
 if (typeof maxMaze === "undefined") {
   maxMaze = 0;
@@ -44,7 +63,7 @@ function initMaze() {
   const settings = {
     width: getInputIntVal("width", 20),
     height: getInputIntVal("height", 20),
-    wallSize: getInputIntVal("wall-size", 1),
+    wallSize: getInputIntVal("wall-size", 10),
     removeWalls: getInputIntVal("remove_walls", 0),
     entryType: "",
     bias: "",
