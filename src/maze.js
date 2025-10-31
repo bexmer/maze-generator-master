@@ -33,7 +33,18 @@ function Maze(args) {
   this.passageSize = Math.max(1, isNaN(parsedPassageSize) ? 1 : parsedPassageSize);
   this.wallSize = this.wallThickness;
   this.removeWalls = parseInt(settings["removeWalls"], 10);
-  this.entryNodes = this.getEntryNodes(settings["entryType"]);
+  this.hideOuterBorder = !!settings["removeOuterBorder"];
+  const parsedExtraExits = parseInt(settings["extraExits"], 10);
+  this.extraExitCount = Math.max(0, isNaN(parsedExtraExits) ? 0 : parsedExtraExits);
+  const entryConfig = this.getEntryNodes(settings["entryType"]);
+  this.entryNodes = entryConfig.nodes;
+  this.extraGates = Array.isArray(entryConfig.extraGates)
+    ? entryConfig.extraGates.slice()
+    : [];
+  this.usedGateSet = entryConfig.usedGateKeys instanceof Set
+    ? new Set(entryConfig.usedGateKeys)
+    : new Set(entryConfig.usedGateKeys || []);
+  this.addExtraExits(this.extraExitCount);
   this.bias = settings["bias"];
   this.color = settings["color"];
   this.backgroundColor = settings["backgroundColor"];
@@ -323,14 +334,71 @@ Maze.prototype.getEntryNodes = function (access) {
   const y = this.height * 2 + 1 - 2;
   const x = this.width * 2 + 1 - 2;
 
-  let entryNodes = {};
+  const entryNodes = {};
+  const extraGates = [];
+  const usedGateKeys = new Set();
+  const perimeter = this.getPerimeterGates();
 
-  if ("diagonal" === access) {
-    entryNodes.start = { x: 1, y: 1, gate: { x: 0, y: 1 } };
-    entryNodes.end = { x: x, y: y, gate: { x: x + 1, y: y } };
-  }
+  const registerNode = (node) => {
+    if (node && node.gate) {
+      usedGateKeys.add(`${node.gate.x},${node.gate.y}`);
+    }
+    return node;
+  };
 
-  if ("horizontal" === access || "vertical" === access) {
+  const addGate = (gate) => {
+    if (!gate) {
+      return;
+    }
+    const key = `${gate.x},${gate.y}`;
+    if (!usedGateKeys.has(key)) {
+      usedGateKeys.add(key);
+      extraGates.push({ x: gate.x, y: gate.y });
+    }
+  };
+
+  if ("random" === access) {
+    if (perimeter.length >= 2) {
+      const pool = perimeter.slice();
+      shuffleArray(pool);
+      const startCandidate = pool[0];
+      let endCandidate = null;
+      for (let i = 1; i < pool.length; i++) {
+        if (pool[i].key !== startCandidate.key) {
+          endCandidate = pool[i];
+          break;
+        }
+      }
+      if (!endCandidate && pool.length > 1) {
+        endCandidate = pool[1];
+      }
+
+      if (startCandidate) {
+        entryNodes.start = registerNode({
+          x: startCandidate.node.x,
+          y: startCandidate.node.y,
+          gate: { x: startCandidate.gate.x, y: startCandidate.gate.y },
+        });
+      }
+
+      if (endCandidate) {
+        entryNodes.end = registerNode({
+          x: endCandidate.node.x,
+          y: endCandidate.node.y,
+          gate: { x: endCandidate.gate.x, y: endCandidate.gate.y },
+        });
+      }
+    }
+  } else if ("all" === access) {
+    entryNodes.start = registerNode({ x: 1, y: 1, gate: { x: 0, y: 1 } });
+    entryNodes.end = registerNode({ x: x, y: y, gate: { x: x + 1, y: y } });
+    for (let i = 0; i < perimeter.length; i++) {
+      addGate(perimeter[i].gate);
+    }
+  } else if ("diagonal" === access) {
+    entryNodes.start = registerNode({ x: 1, y: 1, gate: { x: 0, y: 1 } });
+    entryNodes.end = registerNode({ x: x, y: y, gate: { x: x + 1, y: y } });
+  } else if ("horizontal" === access || "vertical" === access) {
     let xy = "horizontal" === access ? y : x;
     xy = (xy - 1) / 2;
     let even = xy % 2 === 0;
@@ -345,11 +413,95 @@ Maze.prototype.getEntryNodes = function (access) {
     let endgate =
       "horizontal" === access ? { x: x + 1, y: end_y } : { x: end_x, y: y + 1 };
 
-    entryNodes.start = { x: start_x, y: start_y, gate: startgate };
-    entryNodes.end = { x: end_x, y: end_y, gate: endgate };
+    entryNodes.start = registerNode({
+      x: start_x,
+      y: start_y,
+      gate: { x: startgate.x, y: startgate.y },
+    });
+    entryNodes.end = registerNode({
+      x: end_x,
+      y: end_y,
+      gate: { x: endgate.x, y: endgate.y },
+    });
   }
 
-  return entryNodes;
+  return { nodes: entryNodes, extraGates, usedGateKeys };
+};
+
+Maze.prototype.getPerimeterGates = function () {
+  const gates = [];
+  const columns = this.width * 2 + 1;
+  const rows = this.height * 2 + 1;
+
+  for (let row = 0; row < this.height; row++) {
+    const y = row * 2 + 1;
+    gates.push({
+      key: `0,${y}`,
+      node: { x: 1, y: y },
+      gate: { x: 0, y: y },
+    });
+    gates.push({
+      key: `${columns - 1},${y}`,
+      node: { x: columns - 2, y: y },
+      gate: { x: columns - 1, y: y },
+    });
+  }
+
+  for (let column = 0; column < this.width; column++) {
+    const x = column * 2 + 1;
+    gates.push({
+      key: `${x},0`,
+      node: { x: x, y: 1 },
+      gate: { x: x, y: 0 },
+    });
+    gates.push({
+      key: `${x},${rows - 1}`,
+      node: { x: x, y: rows - 2 },
+      gate: { x: x, y: rows - 1 },
+    });
+  }
+
+  return gates;
+};
+
+Maze.prototype.addExtraExits = function (count) {
+  if (!count) {
+    return;
+  }
+
+  if (!(this.usedGateSet instanceof Set)) {
+    this.usedGateSet = new Set();
+  }
+
+  if (!Array.isArray(this.extraGates)) {
+    this.extraGates = [];
+  }
+
+  const perimeter = this.getPerimeterGates();
+  const available = [];
+
+  for (let i = 0; i < perimeter.length; i++) {
+    const key = perimeter[i].key;
+    if (!this.usedGateSet.has(key)) {
+      available.push(perimeter[i]);
+    }
+  }
+
+  if (!available.length) {
+    return;
+  }
+
+  shuffleArray(available);
+
+  const max = Math.min(count, available.length);
+  for (let i = 0; i < max; i++) {
+    const gate = available[i].gate;
+    const key = available[i].key;
+    if (!this.usedGateSet.has(key)) {
+      this.usedGateSet.add(key);
+      this.extraGates.push({ x: gate.x, y: gate.y });
+    }
+  }
 };
 
 Maze.prototype.biasDirections = function (directions) {
@@ -523,17 +675,39 @@ Maze.prototype.draw = function () {
   const row_count = this.matrix.length;
   const gateEntry = getEntryNode(this.entryNodes, "start", true);
   const gateExit = getEntryNode(this.entryNodes, "end", true);
+  const gateSkip = new Set();
+
+  if (gateEntry) {
+    gateSkip.add(`${gateEntry.x},${gateEntry.y}`);
+  }
+
+  if (gateExit) {
+    gateSkip.add(`${gateExit.x},${gateExit.y}`);
+  }
+
+  if (Array.isArray(this.extraGates)) {
+    for (let i = 0; i < this.extraGates.length; i++) {
+      const gate = this.extraGates[i];
+      gateSkip.add(`${gate.x},${gate.y}`);
+    }
+  }
+
+  const lastRow = row_count - 1;
   for (let i = 0; i < row_count; i++) {
-    let row_length = this.matrix[i].length;
+    const row_length = this.matrix[i].length;
+    const lastColumn = row_length - 1;
     for (let j = 0; j < row_length; j++) {
-      if (gateEntry && gateExit) {
-        if (j === gateEntry.x && i === gateEntry.y) {
-          continue;
-        }
-        if (j === gateExit.x && i === gateExit.y) {
-          continue;
-        }
+      if (
+        this.hideOuterBorder &&
+        (i === 0 || j === 0 || i === lastRow || j === lastColumn)
+      ) {
+        continue;
       }
+
+      if (gateSkip.has(`${j},${i}`)) {
+        continue;
+      }
+
       let pixel = parseInt(this.matrix[i].charAt(j), 10);
       if (pixel) {
         const rect = this.getCellRect(j, i);

@@ -131,24 +131,36 @@
                                 <span id="passage-size-value" class="value-display">10 px</span>
                         </p>
 
-			<p>
-				<label for="width">Columns:</label>
-				<input id="width" type="number" name="width" value="20" min="3" max="200">
-			</p>
+                        <p>
+                                <label for="remove-border">Remove outer border:</label>
+                                <input id="remove-border" type="checkbox" name="remove-border" value="1">
+                        </p>
+
+                        <p>
+                                <label for="extra-exits">Extra exits:</label>
+                                <input id="extra-exits" type="number" name="extra-exits" value="0" min="0" max="400">
+                        </p>
+
+                        <p>
+                                <label for="width">Columns:</label>
+                                <input id="width" type="number" name="width" value="20" min="3" max="200">
+                        </p>
 
 			<p>
 				<label for="height">Rows:</label>
 				<input id="height" type="number" name="height" value="20" min="3" max="200">
 			</p>
 			<p>
-				<label for="entry">Maze entries:</label>
-				<select id="entry" name="entry">
-					<option value="">none</option>
-					<option value="diagonal" selected="selected">diagonal</option>
-					<option value="horizontal">left and right</option>
-					<option value="vertical">top and bottom</option>
-				</select>
-			</p>
+                                <label for="entry">Maze entries:</label>
+                                <select id="entry" name="entry">
+                                        <option value="">none</option>
+                                        <option value="diagonal" selected="selected">diagonal</option>
+                                        <option value="horizontal">left and right</option>
+                                        <option value="vertical">top and bottom</option>
+                                        <option value="all">all sides</option>
+                                        <option value="random">random</option>
+                                </select>
+                        </p>
 			<p>
 				<label for="bias">Bias:</label>
 				<select id="bias" name="bias">

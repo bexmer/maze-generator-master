@@ -5,6 +5,8 @@ const wallSizeInput = document.getElementById("wall-size");
 const wallSizeValue = document.getElementById("wall-size-value");
 const passageSizeInput = document.getElementById("passage-size");
 const passageSizeValue = document.getElementById("passage-size-value");
+const removeBorderInput = document.getElementById("remove-border");
+const extraExitsInput = document.getElementById("extra-exits");
 
 if (wallSizeInput && wallSizeValue) {
   const updateWallSizeDisplay = () => {
@@ -16,6 +18,22 @@ if (wallSizeInput && wallSizeValue) {
   wallSizeInput.addEventListener("input", () => {
     updateWallSizeDisplay();
 
+    if (mazeNodes.matrix && mazeNodes.matrix.length) {
+      initMaze();
+    }
+  });
+}
+
+if (removeBorderInput) {
+  removeBorderInput.addEventListener("change", () => {
+    if (mazeNodes.matrix && mazeNodes.matrix.length) {
+      initMaze();
+    }
+  });
+}
+
+if (extraExitsInput) {
+  extraExitsInput.addEventListener("input", () => {
     if (mazeNodes.matrix && mazeNodes.matrix.length) {
       initMaze();
     }
@@ -84,6 +102,8 @@ function initMaze() {
     wallSize: getInputIntVal("wall-size", 10),
     passageSize: getInputIntVal("passage-size", 10),
     removeWalls: getInputIntVal("remove_walls", 0),
+    removeOuterBorder: removeBorderInput ? removeBorderInput.checked : false,
+    extraExits: getInputIntVal("extra-exits", 0),
     entryType: "",
     bias: "",
     color: "#000000",
@@ -116,6 +136,13 @@ function initMaze() {
     settings["removeWalls"] = maxWallsRemove;
     if (removeWallsInput) {
       removeWallsInput.value = maxWallsRemove;
+    }
+  }
+
+  if (settings.extraExits < 0 || isNaN(settings.extraExits)) {
+    settings.extraExits = 0;
+    if (extraExitsInput) {
+      extraExitsInput.value = 0;
     }
   }
 
