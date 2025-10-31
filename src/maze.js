@@ -420,6 +420,8 @@ Maze.prototype.draw = function () {
   const gateEntry = getEntryNode(this.entryNodes, "start", true);
   const gateExit = getEntryNode(this.entryNodes, "end", true);
 
+  const borderThickness = Math.max(1, Math.round(this.wallSize / 2));
+
   for (let i = 0; i < row_count; i++) {
     let row_length = this.matrix[i].length;
     for (let j = 0; j < row_length; j++) {
@@ -433,12 +435,31 @@ Maze.prototype.draw = function () {
       }
       let pixel = parseInt(this.matrix[i].charAt(j), 10);
       if (pixel) {
-        ctx.fillRect(
-          j * this.wallSize,
-          i * this.wallSize,
-          this.wallSize,
-          this.wallSize
-        );
+        const isTopEdge = i === 0;
+        const isBottomEdge = i === row_count - 1;
+        const isLeftEdge = j === 0;
+        const isRightEdge = j === row_length - 1;
+
+        let x = j * this.wallSize;
+        let y = i * this.wallSize;
+        let width = this.wallSize;
+        let height = this.wallSize;
+
+        if (isTopEdge) {
+          height = borderThickness;
+        } else if (isBottomEdge) {
+          y += this.wallSize - borderThickness;
+          height = borderThickness;
+        }
+
+        if (isLeftEdge) {
+          width = borderThickness;
+        } else if (isRightEdge) {
+          x += this.wallSize - borderThickness;
+          width = borderThickness;
+        }
+
+        ctx.fillRect(x, y, width, height);
       }
     }
   }
