@@ -419,8 +419,8 @@ Maze.prototype.draw = function () {
   const row_count = this.matrix.length;
   const gateEntry = getEntryNode(this.entryNodes, "start", true);
   const gateExit = getEntryNode(this.entryNodes, "end", true);
-
-  const borderThickness = Math.max(1, Math.round(this.wallSize / 2));
+  const stroke = Math.max(1, Math.round(this.wallSize * 0.4));
+  const offset = Math.floor((this.wallSize - stroke) / 2);
 
   for (let i = 0; i < row_count; i++) {
     let row_length = this.matrix[i].length;
@@ -435,28 +435,62 @@ Maze.prototype.draw = function () {
       }
       let pixel = parseInt(this.matrix[i].charAt(j), 10);
       if (pixel) {
+        const isEvenRow = i % 2 === 0;
+        const isEvenCol = j % 2 === 0;
         const isTopEdge = i === 0;
         const isBottomEdge = i === row_count - 1;
         const isLeftEdge = j === 0;
         const isRightEdge = j === row_length - 1;
 
-        let x = j * this.wallSize;
-        let y = i * this.wallSize;
+        const baseX = j * this.wallSize;
+        const baseY = i * this.wallSize;
+        const nextX = baseX + this.wallSize;
+        const nextY = baseY + this.wallSize;
+
+        let x = baseX;
+        let y = baseY;
         let width = this.wallSize;
         let height = this.wallSize;
 
-        if (isTopEdge) {
-          height = borderThickness;
-        } else if (isBottomEdge) {
-          y += this.wallSize - borderThickness;
-          height = borderThickness;
-        }
+        if (isEvenRow && !isEvenCol) {
+          // Horizontal wall segment
+          height = stroke;
+          if (isTopEdge) {
+            y = baseY;
+          } else if (isBottomEdge) {
+            y = nextY - stroke;
+          } else {
+            y = baseY + offset;
+          }
+        } else if (!isEvenRow && isEvenCol) {
+          // Vertical wall segment
+          width = stroke;
+          if (isLeftEdge) {
+            x = baseX;
+          } else if (isRightEdge) {
+            x = nextX - stroke;
+          } else {
+            x = baseX + offset;
+          }
+        } else if (isEvenRow && isEvenCol) {
+          // Wall intersection
+          width = stroke;
+          height = stroke;
+          if (isLeftEdge) {
+            x = baseX;
+          } else if (isRightEdge) {
+            x = nextX - stroke;
+          } else {
+            x = baseX + offset;
+          }
 
-        if (isLeftEdge) {
-          width = borderThickness;
-        } else if (isRightEdge) {
-          x += this.wallSize - borderThickness;
-          width = borderThickness;
+          if (isTopEdge) {
+            y = baseY;
+          } else if (isBottomEdge) {
+            y = nextY - stroke;
+          } else {
+            y = baseY + offset;
+          }
         }
 
         ctx.fillRect(x, y, width, height);
