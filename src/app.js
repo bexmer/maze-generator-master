@@ -65,7 +65,7 @@ const syncPassageSliderEnabledState = () => {
   }
 };
 
-const updatePassageDisplay = ({ randomValue, range } = {}) => {
+const updatePassageDisplay = ({ range } = {}) => {
   if (!passageSizeValue) {
     return;
   }
@@ -73,15 +73,11 @@ const updatePassageDisplay = ({ randomValue, range } = {}) => {
   const randomize = !!(randomizePassageInput && randomizePassageInput.checked);
   if (randomize) {
     const activeRange = range || getPassageRandomRange();
-    const suffix = typeof randomValue === "number" ? ` → ${randomValue} px` : "";
-    passageSizeValue.textContent = `Random (${activeRange.min}-${activeRange.max} px)${suffix}`;
+    passageSizeValue.textContent = `Random (${activeRange.min}-${activeRange.max} px)`;
   } else if (passageSizeInput) {
     passageSizeValue.textContent = `${passageSizeInput.value} px`;
   }
 };
-
-const randomIntInRange = (min, max) =>
-  Math.floor(Math.random() * (max - min + 1)) + min;
 
 if (wallSizeInput && wallSizeValue) {
   const updateWallSizeDisplay = () => {
@@ -217,14 +213,10 @@ function initMaze() {
   const extraExits = getInputIntVal("extra-exits", 0);
 
   const randomizePassages = !!(randomizePassageInput && randomizePassageInput.checked);
-  let passageSize = basePassageSize;
+  let passageRange = null;
   if (randomizePassages) {
-    const range = getPassageRandomRange();
-    passageSize = randomIntInRange(range.min, range.max);
-    if (passageSizeInput) {
-      passageSizeInput.value = passageSize;
-    }
-    updatePassageDisplay({ randomValue: passageSize, range });
+    passageRange = getPassageRandomRange();
+    updatePassageDisplay({ range: passageRange });
   } else {
     updatePassageDisplay();
   }
@@ -233,10 +225,13 @@ function initMaze() {
     width,
     height,
     wallSize,
-    passageSize,
+    passageSize: basePassageSize,
     removeWalls,
     removeOuterBorder: removeBorderInput ? removeBorderInput.checked : false,
     extraExits,
+    randomizePassages,
+    passageRandomMin: passageRange ? passageRange.min : undefined,
+    passageRandomMax: passageRange ? passageRange.max : undefined,
     entryType: "",
     bias: "",
     color: "#000000",

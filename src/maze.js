@@ -33,6 +33,17 @@ function Maze(args) {
   this.passageSize = Math.max(1, isNaN(parsedPassageSize) ? 1 : parsedPassageSize);
   this.wallSize = this.wallThickness;
   this.removeWalls = parseInt(settings["removeWalls"], 10);
+  this.randomizePassages = !!settings["randomizePassages"];
+  const parsedRandomMin = parseInt(settings["passageRandomMin"], 10);
+  const parsedRandomMax = parseInt(settings["passageRandomMax"], 10);
+  let randomMin = Math.max(1, isNaN(parsedRandomMin) ? this.passageSize : parsedRandomMin);
+  let randomMax = Math.max(randomMin, isNaN(parsedRandomMax) ? randomMin : parsedRandomMax);
+  if (!this.randomizePassages) {
+    randomMin = this.passageSize;
+    randomMax = this.passageSize;
+  }
+  this.passageRandomMin = randomMin;
+  this.passageRandomMax = randomMax;
   this.hideOuterBorder = !!settings["removeOuterBorder"];
   const parsedExtraExits = parseInt(settings["extraExits"], 10);
   this.extraExitCount = Math.max(0, isNaN(parsedExtraExits) ? 0 : parsedExtraExits);
@@ -95,9 +106,29 @@ Maze.prototype.computeLayout = function () {
   const columnStarts = new Array(columns);
   let columnOffset = 0;
 
+  const randomIntInRange = (min, max) =>
+    Math.floor(Math.random() * (max - min + 1)) + min;
+
+  const passageColumnWidths = new Array(this.width);
+  const passageRowHeights = new Array(this.height);
+
+  for (let i = 0; i < passageColumnWidths.length; i++) {
+    passageColumnWidths[i] = this.randomizePassages
+      ? randomIntInRange(this.passageRandomMin, this.passageRandomMax)
+      : this.passageSize;
+  }
+
+  for (let i = 0; i < passageRowHeights.length; i++) {
+    passageRowHeights[i] = this.randomizePassages
+      ? randomIntInRange(this.passageRandomMin, this.passageRandomMax)
+      : this.passageSize;
+  }
+
   for (let i = 0; i < columns; i++) {
     columnStarts[i] = columnOffset;
-    const width = i % 2 === 0 ? this.wallThickness : this.passageSize;
+    const width = i % 2 === 0
+      ? this.wallThickness
+      : passageColumnWidths[(i - 1) / 2];
     columnWidths[i] = width;
     columnOffset += width;
   }
@@ -108,7 +139,9 @@ Maze.prototype.computeLayout = function () {
 
   for (let i = 0; i < rows; i++) {
     rowStarts[i] = rowOffset;
-    const height = i % 2 === 0 ? this.wallThickness : this.passageSize;
+    const height = i % 2 === 0
+      ? this.wallThickness
+      : passageRowHeights[(i - 1) / 2];
     rowHeights[i] = height;
     rowOffset += height;
   }
@@ -124,6 +157,9 @@ Maze.prototype.computeLayout = function () {
     height: this.height,
     wallThickness: this.wallThickness,
     passageSize: this.passageSize,
+    randomizePassages: this.randomizePassages,
+    passageRandomMin: this.passageRandomMin,
+    passageRandomMax: this.passageRandomMax,
   };
 };
 
@@ -133,7 +169,10 @@ Maze.prototype.getLayout = function () {
     this.layoutCache.width !== this.width ||
     this.layoutCache.height !== this.height ||
     this.layoutCache.wallThickness !== this.wallThickness ||
-    this.layoutCache.passageSize !== this.passageSize
+    this.layoutCache.passageSize !== this.passageSize ||
+    this.layoutCache.randomizePassages !== this.randomizePassages ||
+    this.layoutCache.passageRandomMin !== this.passageRandomMin ||
+    this.layoutCache.passageRandomMax !== this.passageRandomMax
   ) {
     this.layoutCache = this.computeLayout();
   }
