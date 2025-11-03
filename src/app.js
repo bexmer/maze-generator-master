@@ -5,8 +5,83 @@ const wallSizeInput = document.getElementById("wall-size");
 const wallSizeValue = document.getElementById("wall-size-value");
 const passageSizeInput = document.getElementById("passage-size");
 const passageSizeValue = document.getElementById("passage-size-value");
+const randomizePassageInput = document.getElementById("randomize-passage");
+const passageRangeMinInput = document.getElementById("passage-size-min");
+const passageRangeMaxInput = document.getElementById("passage-size-max");
 const removeBorderInput = document.getElementById("remove-border");
 const extraExitsInput = document.getElementById("extra-exits");
+
+const passageSliderMin = passageSizeInput
+  ? Math.max(1, parseInt(passageSizeInput.min, 10) || 1)
+  : 1;
+const passageSliderMax = passageSizeInput
+  ? Math.max(passageSliderMin, parseInt(passageSizeInput.max, 10) || passageSliderMin)
+  : passageSliderMin;
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const parseBoundedInt = (input, fallback, minBound, maxBound) => {
+  if (!input) {
+    return clamp(fallback, minBound, maxBound);
+  }
+
+  let value = parseInt(input.value, 10);
+  if (Number.isNaN(value)) {
+    value = fallback;
+  }
+
+  value = clamp(value, minBound, maxBound);
+  input.value = value;
+  return value;
+};
+
+const getPassageRandomRange = () => {
+  const minValue = parseBoundedInt(
+    passageRangeMinInput,
+    passageSliderMin,
+    passageSliderMin,
+    passageSliderMax
+  );
+  let maxValue = parseBoundedInt(
+    passageRangeMaxInput,
+    passageSliderMax,
+    passageSliderMin,
+    passageSliderMax
+  );
+
+  if (maxValue < minValue) {
+    maxValue = minValue;
+    if (passageRangeMaxInput) {
+      passageRangeMaxInput.value = maxValue;
+    }
+  }
+
+  return { min: minValue, max: maxValue };
+};
+
+const syncPassageSliderEnabledState = () => {
+  if (passageSizeInput) {
+    passageSizeInput.disabled = !!(randomizePassageInput && randomizePassageInput.checked);
+  }
+};
+
+const updatePassageDisplay = ({ randomValue, range } = {}) => {
+  if (!passageSizeValue) {
+    return;
+  }
+
+  const randomize = !!(randomizePassageInput && randomizePassageInput.checked);
+  if (randomize) {
+    const activeRange = range || getPassageRandomRange();
+    const suffix = typeof randomValue === "number" ? ` → ${randomValue} px` : "";
+    passageSizeValue.textContent = `Random (${activeRange.min}-${activeRange.max} px)${suffix}`;
+  } else if (passageSizeInput) {
+    passageSizeValue.textContent = `${passageSizeInput.value} px`;
+  }
+};
+
+const randomIntInRange = (min, max) =>
+  Math.floor(Math.random() * (max - min + 1)) + min;
 
 if (wallSizeInput && wallSizeValue) {
   const updateWallSizeDisplay = () => {
@@ -41,20 +116,58 @@ if (extraExitsInput) {
 }
 
 if (passageSizeInput && passageSizeValue) {
-  const updatePassageSizeDisplay = () => {
-    passageSizeValue.textContent = `${passageSizeInput.value} px`;
-  };
-
-  updatePassageSizeDisplay();
-
   passageSizeInput.addEventListener("input", () => {
-    updatePassageSizeDisplay();
+    if (randomizePassageInput && randomizePassageInput.checked) {
+      updatePassageDisplay();
+      return;
+    }
+
+    updatePassageDisplay();
 
     if (mazeNodes.matrix && mazeNodes.matrix.length) {
       initMaze();
     }
   });
 }
+
+const onRandomRangeInput = () => {
+  getPassageRandomRange();
+  updatePassageDisplay();
+
+  if (
+    randomizePassageInput &&
+    randomizePassageInput.checked &&
+    mazeNodes.matrix &&
+    mazeNodes.matrix.length
+  ) {
+    initMaze();
+  }
+};
+
+if (randomizePassageInput) {
+  randomizePassageInput.addEventListener("change", () => {
+    syncPassageSliderEnabledState();
+    updatePassageDisplay();
+
+    if (mazeNodes.matrix && mazeNodes.matrix.length) {
+      initMaze();
+    }
+  });
+}
+
+if (passageRangeMinInput) {
+  passageRangeMinInput.addEventListener("input", onRandomRangeInput);
+}
+
+if (passageRangeMaxInput) {
+  passageRangeMaxInput.addEventListener("input", onRandomRangeInput);
+}
+
+syncPassageSliderEnabledState();
+if (randomizePassageInput && randomizePassageInput.checked) {
+  getPassageRandomRange();
+}
+updatePassageDisplay();
 
 // Check if globals are defined
 if (typeof maxMaze === "undefined") {
@@ -96,14 +209,34 @@ function initMaze() {
   download.setAttribute("download", "maze.png");
   download.innerHTML = "download maze";
 
+  const width = getInputIntVal("width", 20);
+  const height = getInputIntVal("height", 20);
+  const wallSize = getInputIntVal("wall-size", 10);
+  const basePassageSize = getInputIntVal("passage-size", 10);
+  const removeWalls = getInputIntVal("remove_walls", 0);
+  const extraExits = getInputIntVal("extra-exits", 0);
+
+  const randomizePassages = !!(randomizePassageInput && randomizePassageInput.checked);
+  let passageSize = basePassageSize;
+  if (randomizePassages) {
+    const range = getPassageRandomRange();
+    passageSize = randomIntInRange(range.min, range.max);
+    if (passageSizeInput) {
+      passageSizeInput.value = passageSize;
+    }
+    updatePassageDisplay({ randomValue: passageSize, range });
+  } else {
+    updatePassageDisplay();
+  }
+
   const settings = {
-    width: getInputIntVal("width", 20),
-    height: getInputIntVal("height", 20),
-    wallSize: getInputIntVal("wall-size", 10),
-    passageSize: getInputIntVal("passage-size", 10),
-    removeWalls: getInputIntVal("remove_walls", 0),
+    width,
+    height,
+    wallSize,
+    passageSize,
+    removeWalls,
     removeOuterBorder: removeBorderInput ? removeBorderInput.checked : false,
-    extraExits: getInputIntVal("extra-exits", 0),
+    extraExits,
     entryType: "",
     bias: "",
     color: "#000000",

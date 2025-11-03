@@ -65,15 +65,22 @@
 				cursor:pointer;
 				display: inline-block;
 			}
-			.palette div:focus {
-				outline-width: 2px;
-				outline-style: dashed;
-			}
-			.screen-reader-text {
-				border: 0;
-				clip: rect(1px, 1px, 1px, 1px);
-				-webkit-clip-path: inset(50%);
-				clip-path: inset(50%);
+                        .palette div:focus {
+                                outline-width: 2px;
+                                outline-style: dashed;
+                        }
+                        .range-separator {
+                                margin: 0 0.5em;
+                                display: inline-block;
+                        }
+                        p.random-range input[type="number"] {
+                                width: 5em;
+                        }
+                        .screen-reader-text {
+                                border: 0;
+                                clip: rect(1px, 1px, 1px, 1px);
+                                -webkit-clip-path: inset(50%);
+                                clip-path: inset(50%);
 				height: 1px;
 				margin: -1px;
 				overflow: hidden;
@@ -129,6 +136,16 @@
                                 <label for="passage-size">Passage width:</label>
                                 <input id="passage-size" type="range" name="passage-size" value="10" min="1" max="60">
                                 <span id="passage-size-value" class="value-display">10 px</span>
+                        </p>
+                        <p>
+                                <label for="randomize-passage">Randomize passage width:</label>
+                                <input id="randomize-passage" type="checkbox" name="randomize-passage" value="1">
+                        </p>
+                        <p class="random-range">
+                                <label for="passage-size-min">Random range (px):</label>
+                                <input id="passage-size-min" type="number" name="passage-size-min" value="6" min="1" max="60">
+                                <span aria-hidden="true" class="range-separator">to</span>
+                                <input id="passage-size-max" type="number" name="passage-size-max" value="20" min="1" max="60">
                         </p>
 
                         <p>
