@@ -703,6 +703,147 @@ Maze.prototype.usesOrganicWalls = function () {
   return this.wallStyle !== "grid" && this.wallShapeVariance > 0;
 };
 
+Maze.prototype.getOrganicAnglePalette = function () {
+  return [0, 15, 30, 45, 60, 75];
+};
+
+Maze.prototype.quantizeOrganicAngle = function (angle) {
+  const palette = this.getOrganicAnglePalette();
+  const sign = angle < 0 ? -1 : 1;
+  const absAngle = Math.abs((angle * 180) / Math.PI);
+  let closest = palette[0];
+  let smallestDelta = Math.abs(absAngle - palette[0]);
+  for (let i = 1; i < palette.length; i++) {
+    const candidate = palette[i];
+    const delta = Math.abs(absAngle - candidate);
+    if (delta < smallestDelta) {
+      smallestDelta = delta;
+      closest = candidate;
+    }
+  }
+  const quantized = (closest * Math.PI) / 180;
+  return sign * quantized;
+};
+
+Maze.prototype.generateOrganicPolyline = function (
+  startX,
+  startY,
+  endX,
+  endY,
+  variance,
+  options
+) {
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const axisLength = Math.hypot(dx, dy);
+  if (axisLength === 0) {
+    return [{ x: startX, y: startY }];
+  }
+
+  const axisDirX = dx / axisLength;
+  const axisDirY = dy / axisLength;
+  const perpDirX = -axisDirY;
+  const perpDirY = axisDirX;
+  const orientation = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
+  const maxDetour = Math.max(1, options && options.maxDetour ? options.maxDetour : axisLength * 0.25);
+  const clampedVariance = Math.max(0, Math.min(1, variance || 0));
+  const interiorSlots = Math.max(0, Math.round(clampedVariance * 4 + Math.random() * clampedVariance * 3));
+  const minSpacing = 1 / Math.max(2, interiorSlots + 2);
+
+  const randomInRange = (min, max) => Math.random() * (max - min) + min;
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+  const params = [{ pos: 0, offset: 0 }];
+  let lastPos = 0;
+  let lastOffset = 0;
+
+  for (let i = 0; i < interiorSlots; i++) {
+    const remaining = 1 - lastPos - minSpacing * (interiorSlots - i + 1);
+    const span = remaining > 0 ? remaining : 0;
+    const advance = minSpacing + (span > 0 ? Math.random() * span : 0);
+    const nextPos = clamp(lastPos + advance, lastPos + minSpacing, 1 - minSpacing);
+
+    if (clampedVariance > 0.2 && Math.random() < 0.35) {
+      const perpendicular = clamp(
+        lastOffset + randomInRange(-maxDetour, maxDetour),
+        -maxDetour,
+        maxDetour
+      );
+      if (Math.abs(perpendicular - lastOffset) > 0.1) {
+        params.push({ pos: lastPos, offset: perpendicular });
+        lastOffset = perpendicular;
+      }
+    }
+
+    let offset = clamp(randomInRange(-maxDetour, maxDetour), -maxDetour, maxDetour);
+    if (Math.abs(offset - lastOffset) < maxDetour * 0.15) {
+      offset = clamp(
+        offset + (offset >= lastOffset ? 1 : -1) * maxDetour * 0.2,
+        -maxDetour,
+        maxDetour
+      );
+    }
+
+    params.push({ pos: nextPos, offset });
+    lastPos = nextPos;
+    lastOffset = offset;
+  }
+
+  if (clampedVariance > 0.25 && Math.random() < 0.4) {
+    const perpendicular = clamp(
+      lastOffset + randomInRange(-maxDetour, maxDetour),
+      -maxDetour,
+      maxDetour
+    );
+    if (Math.abs(perpendicular - lastOffset) > 0.1) {
+      params.push({ pos: lastPos, offset: perpendicular });
+      lastOffset = perpendicular;
+    }
+  }
+
+  params.push({ pos: 1, offset: lastOffset });
+  if (Math.abs(lastOffset) > 0.05) {
+    params.push({ pos: 1, offset: 0 });
+  }
+
+  for (let i = 1; i < params.length; i++) {
+    const current = params[i];
+    const previous = params[i - 1];
+    const deltaPos = current.pos - previous.pos;
+
+    if (Math.abs(deltaPos) < 1e-6) {
+      current.offset = clamp(current.offset, -maxDetour, maxDetour);
+      continue;
+    }
+
+    const dxLocal = axisLength * deltaPos;
+    const targetAngle = Math.atan2(current.offset - previous.offset, dxLocal);
+    const quantizedAngle = this.quantizeOrganicAngle(targetAngle);
+    const desiredOffset = previous.offset + Math.tan(quantizedAngle) * dxLocal;
+    current.offset = clamp(desiredOffset, -maxDetour, maxDetour);
+  }
+
+  const points = [];
+  for (let i = 0; i < params.length; i++) {
+    const param = params[i];
+    const axisProgress = clamp(param.pos, 0, 1);
+    const offset = clamp(param.offset, -maxDetour, maxDetour);
+    const x = startX + axisDirX * axisLength * axisProgress + perpDirX * offset;
+    const y = startY + axisDirY * axisLength * axisProgress + perpDirY * offset;
+    if (i === 0 || Math.hypot(points[points.length - 1].x - x, points[points.length - 1].y - y) > 0.5) {
+      points.push({ x, y });
+    }
+  }
+
+  if (points.length === 1) {
+    points.push({ x: endX, y: endY });
+  } else if (Math.hypot(points[points.length - 1].x - endX, points[points.length - 1].y - endY) > 0.5) {
+    points.push({ x: endX, y: endY });
+  }
+
+  return points;
+};
+
 Maze.prototype.getWallShapeKey = function (x, y) {
   return `${x},${y}`;
 };
@@ -889,20 +1030,12 @@ Maze.prototype.drawOrganicMaze = function (ctx, layout) {
       const startY = rowCenters[y1];
       const endX = columnCenters[x2];
       const endY = rowCenters[y2];
-      const dx = endX - startX;
-      const dy = endY - startY;
-      const length = Math.hypot(dx, dy) || 1;
-      const normalX = -dy / length;
-      const normalY = dx / length;
-      const wobble = variance > 0 ? (Math.random() * 2 - 1) * width * variance * 0.8 : 0;
-      const controlX = (startX + endX) / 2 + normalX * wobble;
-      const controlY = (startY + endY) / 2 + normalY * wobble;
+      const points = this.generateOrganicPolyline(startX, startY, endX, endY, variance, {
+        maxDetour: Math.max(width * 1.5, this.wallThickness * 1.25),
+      });
       this.organicEdgeCache.set(key, {
         width,
-        controlX,
-        controlY,
-        endX,
-        endY,
+        points,
       });
     }
 
@@ -918,33 +1051,23 @@ Maze.prototype.drawOrganicMaze = function (ctx, layout) {
       const startY = rowCenters[y];
       let endX = startX;
       let endY = startY;
-      let controlX = startX;
-      let controlY = startY;
-
       if (horizontal) {
         const boundaryStart = layout.columnStarts[boundaryIndex];
         const boundaryWidth = layout.columnWidths[boundaryIndex];
         endX = forward ? boundaryStart + boundaryWidth : boundaryStart;
-        endY = startY;
-        const wobble = variance > 0 ? (Math.random() * 2 - 1) * width * variance * 0.75 : 0;
-        controlX = (startX + endX) / 2;
-        controlY = startY + wobble;
       } else {
         const boundaryStart = layout.rowStarts[boundaryIndex];
         const boundaryHeight = layout.rowHeights[boundaryIndex];
-        endX = startX;
         endY = forward ? boundaryStart + boundaryHeight : boundaryStart;
-        const wobble = variance > 0 ? (Math.random() * 2 - 1) * width * variance * 0.75 : 0;
-        controlX = startX + wobble;
-        controlY = (startY + endY) / 2;
       }
+
+      const points = this.generateOrganicPolyline(startX, startY, endX, endY, variance, {
+        maxDetour: Math.max(width * 1.35, this.wallThickness * 1.25),
+      });
 
       this.organicEdgeCache.set(key, {
         width,
-        controlX,
-        controlY,
-        endX,
-        endY,
+        points,
       });
     }
 
@@ -953,19 +1076,33 @@ Maze.prototype.drawOrganicMaze = function (ctx, layout) {
 
   const carveEdge = (x1, y1, x2, y2) => {
     const shape = getEdgeShape(x1, y1, x2, y2);
+    const points = Array.isArray(shape.points) ? shape.points : [];
+    if (points.length < 2) {
+      return;
+    }
     ctx.beginPath();
     ctx.lineWidth = shape.width;
-    ctx.moveTo(columnCenters[x1], rowCenters[y1]);
-    ctx.quadraticCurveTo(shape.controlX, shape.controlY, shape.endX, shape.endY);
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      const point = points[i];
+      ctx.lineTo(point.x, point.y);
+    }
     ctx.stroke();
   };
 
   const carveBoundaryEdge = (x, y, boundaryIndex, horizontal, forward) => {
     const shape = getBoundaryShape(x, y, boundaryIndex, horizontal, forward);
+    const points = Array.isArray(shape.points) ? shape.points : [];
+    if (points.length < 2) {
+      return;
+    }
     ctx.beginPath();
     ctx.lineWidth = shape.width;
-    ctx.moveTo(columnCenters[x], rowCenters[y]);
-    ctx.quadraticCurveTo(shape.controlX, shape.controlY, shape.endX, shape.endY);
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      const point = points[i];
+      ctx.lineTo(point.x, point.y);
+    }
     ctx.stroke();
   };
 
