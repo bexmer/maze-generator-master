@@ -78,8 +78,6 @@ function Maze(args) {
   const clampedVariance = Math.min(100, Math.max(0, isNaN(parsedVariance) ? 0 : parsedVariance));
   this.wallShapeVariance = clampedVariance / 100;
   this.wallShapeCache = new Map();
-  this.organicEdgeCache = new Map();
-  this.organicNodeCache = new Map();
 }
 
 Maze.prototype.generate = function () {
@@ -699,179 +697,367 @@ Maze.prototype.removeMazeWalls = function () {
   }
 };
 
-Maze.prototype.usesOrganicWalls = function () {
-  return this.wallStyle !== "grid" && this.wallShapeVariance > 0;
+Maze.prototype.usesStylizedLineWalls = function () {
+  if (this.wallShapeVariance <= 0) {
+    return false;
+  }
+
+  return this.wallStyle === "angled" || this.wallStyle === "organic";
 };
 
-Maze.prototype.getOrganicAnglePalette = function () {
-  return [0, 30, 45, 60, 90, 120];
-};
-
-Maze.prototype.generateOrganicPolyline = function (
-  startX,
-  startY,
-  endX,
-  endY,
-  variance,
-  options
-) {
-  const dx = endX - startX;
-  const dy = endY - startY;
-  const axisLength = Math.hypot(dx, dy);
-  if (axisLength === 0) {
-    return [{ x: startX, y: startY }, { x: endX, y: endY }];
-  }
-
-  const axisDirX = dx / axisLength;
-  const axisDirY = dy / axisLength;
-  const perpDirX = -axisDirY;
-  const perpDirY = axisDirX;
-  const maxDetourBase = options && options.maxDetour ? options.maxDetour : axisLength * 0.25;
-  const maxDetour = Math.max(1, Math.min(axisLength * 0.45, maxDetourBase));
-  const clampedVariance = Math.max(0, Math.min(1, variance || 0));
-  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-  const randomInRange = (min, max) => Math.random() * (max - min) + min;
-
-  let segmentCount = Math.round(clampedVariance * 5);
-  if (clampedVariance > 0 && segmentCount === 0) {
-    segmentCount = 1;
-  }
-  segmentCount = Math.min(6, Math.max(0, segmentCount));
-
-  if (segmentCount === 0) {
-    return [
-      { x: startX, y: startY },
-      { x: endX, y: endY },
-    ];
-  }
-
-  const anglePalette = this.getOrganicAnglePalette();
-  const orientedAngles = [];
-  for (let i = 0; i < anglePalette.length; i++) {
-    const base = anglePalette[i];
-    if (base === 0) {
-      orientedAngles.push(0);
-      continue;
-    }
-    if (base === 90) {
-      continue;
-    }
-    const radians = (base * Math.PI) / 180;
-    orientedAngles.push(radians, -radians);
-  }
-  if (!orientedAngles.length) {
-    orientedAngles.push(0);
-  }
-
-  const minSegment = Math.max(2, axisLength / (segmentCount + 1) * 0.6);
-  const maxSegment = Math.max(minSegment, axisLength / (segmentCount + 1) * 1.45);
-
-  const localPoints = [{ progress: 0, offset: 0 }];
-  let progress = 0;
-  let offset = 0;
-
-  const chooseAngle = (biasTowardCenter) => {
-    const pool = [];
-    for (let i = 0; i < orientedAngles.length; i++) {
-      const angle = orientedAngles[i];
-      if (Math.abs(angle) >= Math.PI / 2 - 0.05) {
-        continue;
-      }
-      if (biasTowardCenter && Math.abs(offset) > 0.01) {
-        if (offset > 0 && angle > 0) {
-          continue;
-        }
-        if (offset < 0 && angle < 0) {
-          continue;
-        }
-      }
-      pool.push(angle);
-    }
-
-    if (!pool.length) {
-      return 0;
-    }
-
-    const index = Math.floor(Math.random() * pool.length);
-    return pool[index];
-  };
-
-  for (let i = 0; i < segmentCount; i++) {
-    const segmentsLeft = segmentCount - i - 1;
-    const remainingAxis = axisLength - progress;
-    if (remainingAxis <= minSegment) {
-      break;
-    }
-
-    const maxForThis = Math.max(minSegment, Math.min(maxSegment, remainingAxis - segmentsLeft * minSegment));
-    const minForThis = Math.max(minSegment, Math.min(maxForThis, remainingAxis / (segmentsLeft + 1) * 0.7));
-
-    let dxLocal = minForThis;
-    let dyLocal = 0;
-    let attempts = 0;
-    const biasCenter = Math.abs(offset) > maxDetour * 0.55;
-    while (attempts < 8) {
-      const candidateAngle = chooseAngle(biasCenter);
-      const candidateDx = clamp(randomInRange(minForThis, maxForThis), minSegment, maxForThis);
-      const slope = Math.tan(candidateAngle);
-      const candidateDy = candidateDx * slope;
-      if (Math.abs(offset + candidateDy) <= maxDetour * 0.95) {
-        dxLocal = candidateDx;
-        dyLocal = candidateDy;
-        break;
-      }
-      attempts++;
-    }
-
-    progress += dxLocal;
-    offset = clamp(offset + dyLocal, -maxDetour, maxDetour);
-    localPoints.push({ progress, offset });
-  }
-
-  if (axisLength - progress > 1) {
-    progress = axisLength;
-    localPoints.push({ progress, offset });
-  } else {
-    progress = axisLength;
-  }
-
-  if (Math.abs(offset) > 0.5) {
-    const settle = clamp(offset * 0.35, -maxDetour * 0.4, maxDetour * 0.4);
-    if (Math.abs(settle - offset) > 0.25) {
-      localPoints.push({ progress: axisLength, offset: settle });
-      offset = settle;
-    }
-    localPoints.push({ progress: axisLength, offset: 0 });
-  } else {
-    localPoints.push({ progress: axisLength, offset: 0 });
-  }
-
-  const points = [];
-  for (let i = 0; i < localPoints.length; i++) {
-    const local = localPoints[i];
-    const x = startX + axisDirX * local.progress + perpDirX * local.offset;
-    const y = startY + axisDirY * local.progress + perpDirY * local.offset;
-    if (
-      points.length === 0 ||
-      Math.hypot(points[points.length - 1].x - x, points[points.length - 1].y - y) > 0.5
-    ) {
-      points.push({ x, y });
-    }
-  }
-
-  if (points.length === 1 || Math.hypot(points[points.length - 1].x - endX, points[points.length - 1].y - endY) > 0.5) {
-    points.push({ x: endX, y: endY });
-  }
-
-  return points;
-};
 
 Maze.prototype.getWallShapeKey = function (x, y) {
   return `${x},${y}`;
 };
 
+Maze.prototype.computeCornerGeometry = function (centerX, centerY, gridX, gridY, dirA, dirB, layout, variance) {
+  const directionInfo = {
+    east: { axis: "x", sign: 1 },
+    west: { axis: "x", sign: -1 },
+    south: { axis: "y", sign: 1 },
+    north: { axis: "y", sign: -1 },
+  };
+
+  const getHalfSpan = (direction) => {
+    switch (direction) {
+      case "east":
+        return gridX + 1 < layout.columnWidths.length
+          ? layout.columnWidths[gridX + 1] / 2
+          : 0;
+      case "west":
+        return gridX - 1 >= 0 ? layout.columnWidths[gridX - 1] / 2 : 0;
+      case "south":
+        return gridY + 1 < layout.rowHeights.length
+          ? layout.rowHeights[gridY + 1] / 2
+          : 0;
+      case "north":
+        return gridY - 1 >= 0 ? layout.rowHeights[gridY - 1] / 2 : 0;
+      default:
+        return 0;
+    }
+  };
+
+  const angleOptions = [30, 45, 60, 75];
+  const angle = angleOptions[Math.floor(Math.random() * angleOptions.length)] || 45;
+  const angleRadians = (angle * Math.PI) / 180;
+  const tangent = Math.tan(angleRadians);
+
+  if (!isFinite(tangent) || tangent <= 0) {
+    return null;
+  }
+
+  const maxAlong = getHalfSpan(dirA);
+  const maxPerp = getHalfSpan(dirB);
+
+  if (maxAlong <= 0 || maxPerp <= 0) {
+    return null;
+  }
+
+  let along = Math.min(maxAlong, maxPerp / tangent);
+  let perp = along * tangent;
+
+  const scale = 0.4 + variance * (0.4 + Math.random() * 0.2);
+  along *= scale;
+  perp *= scale;
+
+  if (perp > maxPerp) {
+    const ratio = maxPerp / perp;
+    perp = maxPerp;
+    along *= ratio;
+  }
+
+  if (along > maxAlong) {
+    const ratio = maxAlong / along;
+    along = maxAlong;
+    perp *= ratio;
+  }
+
+  const minUseful = Math.min(maxAlong, maxPerp) * 0.15;
+  if (along <= minUseful || perp <= minUseful) {
+    return null;
+  }
+
+  const dirInfoA = directionInfo[dirA];
+  const dirInfoB = directionInfo[dirB];
+
+  if (!dirInfoA || !dirInfoB) {
+    return null;
+  }
+
+  const pointA = {
+    x: centerX + (dirInfoA.axis === "x" ? dirInfoA.sign * along : 0),
+    y: centerY + (dirInfoA.axis === "y" ? dirInfoA.sign * along : 0),
+  };
+
+  const pointB = {
+    x: centerX + (dirInfoB.axis === "x" ? dirInfoB.sign * perp : 0),
+    y: centerY + (dirInfoB.axis === "y" ? dirInfoB.sign * perp : 0),
+  };
+
+  return {
+    trimA: along,
+    trimB: perp,
+    pointA,
+    pointB,
+  };
+};
+
+Maze.prototype.drawStylizedMaze = function (ctx, layout) {
+  const rows = this.matrix.length;
+  if (!rows) {
+    return;
+  }
+
+  const columns = this.matrix[0].length;
+  const columnCenters = new Array(columns);
+  const rowCenters = new Array(rows);
+
+  for (let i = 0; i < columns; i++) {
+    columnCenters[i] = layout.columnStarts[i] + layout.columnWidths[i] / 2;
+  }
+
+  for (let j = 0; j < rows; j++) {
+    rowCenters[j] = layout.rowStarts[j] + layout.rowHeights[j] / 2;
+  }
+
+  const variance = Math.max(0, Math.min(1, this.wallShapeVariance || 0));
+  const baseWidth = Math.max(1, this.wallThickness);
+  const minWidth = Math.max(1, baseWidth * (1 - 0.45 * variance));
+  const maxWidth = Math.max(minWidth, baseWidth * (1 + 0.65 * variance));
+  const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+  const nodeKey = (x, y) => `${x},${y}`;
+  const nodeData = new Map();
+  const ensureNodeEntry = (x, y) => {
+    const key = nodeKey(x, y);
+    if (!nodeData.has(key)) {
+      nodeData.set(key, { trims: {}, diagonals: [] });
+    }
+    return nodeData.get(key);
+  };
+
+  const directionInfo = {
+    east: { axis: "x", sign: 1 },
+    west: { axis: "x", sign: -1 },
+    south: { axis: "y", sign: 1 },
+    north: { axis: "y", sign: -1 },
+  };
+
+  const opposite = { east: "west", west: "east", north: "south", south: "north" };
+  const isOpposite = (a, b) => opposite[a] === b;
+
+  for (let y = 1; y < rows; y += 2) {
+    for (let x = 1; x < columns; x += 2) {
+      if (this.matrix[y].charAt(x) !== "0") {
+        continue;
+      }
+
+      const connections = [];
+      if (x + 2 < columns && this.matrix[y].charAt(x + 1) === "0" && this.matrix[y].charAt(x + 2) === "0") {
+        connections.push("east");
+      }
+      if (x - 2 >= 0 && this.matrix[y].charAt(x - 1) === "0" && this.matrix[y].charAt(x - 2) === "0") {
+        connections.push("west");
+      }
+      if (y + 2 < rows && this.matrix[y + 1].charAt(x) === "0" && this.matrix[y + 2].charAt(x) === "0") {
+        connections.push("south");
+      }
+      if (y - 2 >= 0 && this.matrix[y - 1].charAt(x) === "0" && this.matrix[y - 2].charAt(x) === "0") {
+        connections.push("north");
+      }
+
+      if (connections.length !== 2 || isOpposite(connections[0], connections[1])) {
+        continue;
+      }
+
+      const centerX = columnCenters[x];
+      const centerY = rowCenters[y];
+      const dirA = connections[0];
+      const dirB = connections[1];
+      const geometry = this.computeCornerGeometry(centerX, centerY, x, y, dirA, dirB, layout, variance);
+
+      if (!geometry) {
+        continue;
+      }
+
+      const entry = ensureNodeEntry(x, y);
+      entry.trims[dirA] = Math.max(entry.trims[dirA] || 0, geometry.trimA);
+      entry.trims[dirB] = Math.max(entry.trims[dirB] || 0, geometry.trimB);
+      entry.diagonals.push({
+        dirA,
+        dirB,
+        start: geometry.pointA,
+        end: geometry.pointB,
+      });
+    }
+  }
+
+  const getTrim = (x, y, direction) => {
+    const entry = nodeData.get(nodeKey(x, y));
+    if (!entry || typeof entry !== "object") {
+      return 0;
+    }
+
+    const value = entry.trims[direction];
+    return typeof value === "number" && !isNaN(value) ? value : 0;
+  };
+
+  const edgeWidthCache = new Map();
+  const getEdgeWidthKey = (x, y, direction) => `${x},${y},${direction}`;
+
+  const carveEdge = (x1, y1, x2, y2) => {
+    const direction = x1 === x2 ? (y2 > y1 ? "south" : "north") : (x2 > x1 ? "east" : "west");
+    const info = directionInfo[direction];
+    if (!info) {
+      return;
+    }
+
+    const oppositeDirection = opposite[direction];
+    const trimStart = getTrim(x1, y1, direction);
+    const trimEnd = getTrim(x2, y2, oppositeDirection);
+
+    const startX = columnCenters[x1] + (info.axis === "x" ? info.sign * trimStart : 0);
+    const startY = rowCenters[y1] + (info.axis === "y" ? info.sign * trimStart : 0);
+    const endX = columnCenters[x2] - (info.axis === "x" ? info.sign * trimEnd : 0);
+    const endY = rowCenters[y2] - (info.axis === "y" ? info.sign * trimEnd : 0);
+
+    if (Math.hypot(endX - startX, endY - startY) < 0.5) {
+      return;
+    }
+
+    const width = randomInRange(minWidth, maxWidth);
+    ctx.beginPath();
+    ctx.lineWidth = width;
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    edgeWidthCache.set(getEdgeWidthKey(x1, y1, direction), width);
+    edgeWidthCache.set(getEdgeWidthKey(x2, y2, oppositeDirection), width);
+  };
+
+  const carveBoundaryEdge = (x, y, boundaryIndex, horizontal, forward) => {
+    const direction = horizontal ? (forward ? "east" : "west") : (forward ? "south" : "north");
+    const info = directionInfo[direction];
+    if (!info) {
+      return;
+    }
+
+    const trimStart = getTrim(x, y, direction);
+    const startX = columnCenters[x] + (info.axis === "x" ? info.sign * trimStart : 0);
+    const startY = rowCenters[y] + (info.axis === "y" ? info.sign * trimStart : 0);
+    let endX = startX;
+    let endY = startY;
+
+    if (horizontal) {
+      const boundaryStart = layout.columnStarts[boundaryIndex];
+      const boundaryWidth = layout.columnWidths[boundaryIndex];
+      endX = forward ? boundaryStart + boundaryWidth : boundaryStart;
+    } else {
+      const boundaryStart = layout.rowStarts[boundaryIndex];
+      const boundaryHeight = layout.rowHeights[boundaryIndex];
+      endY = forward ? boundaryStart + boundaryHeight : boundaryStart;
+    }
+
+    if (Math.hypot(endX - startX, endY - startY) < 0.5) {
+      return;
+    }
+
+    const width = randomInRange(minWidth, maxWidth);
+    ctx.beginPath();
+    ctx.lineWidth = width;
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    edgeWidthCache.set(getEdgeWidthKey(x, y, direction), width);
+  };
+
+  ctx.save();
+  ctx.strokeStyle = this.color;
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
+
+  for (let y = 1; y < rows; y += 2) {
+    for (let x = 1; x < columns; x += 2) {
+      if (this.matrix[y].charAt(x) !== "0") {
+        continue;
+      }
+
+      if (x + 2 < columns && this.matrix[y].charAt(x + 1) === "0" && this.matrix[y].charAt(x + 2) === "0") {
+        carveEdge(x, y, x + 2, y);
+      } else if (x + 1 < columns && this.matrix[y].charAt(x + 1) === "0") {
+        carveBoundaryEdge(x, y, x + 1, true, true);
+      }
+
+      if (y + 2 < rows && this.matrix[y + 1].charAt(x) === "0" && this.matrix[y + 2].charAt(x) === "0") {
+        carveEdge(x, y, x, y + 2);
+      } else if (y + 1 < rows && this.matrix[y + 1].charAt(x) === "0") {
+        carveBoundaryEdge(x, y, y + 1, false, true);
+      }
+
+      if (this.matrix[y].charAt(x - 1) === "0" && (x - 2 < 0 || this.matrix[y].charAt(x - 2) !== "0")) {
+        carveBoundaryEdge(x, y, x - 1, true, false);
+      }
+
+      if (
+        this.matrix[y - 1] &&
+        this.matrix[y - 1].charAt(x) === "0" &&
+        (y - 2 < 0 || this.matrix[y - 2].charAt(x) !== "0")
+      ) {
+        carveBoundaryEdge(x, y, y - 1, false, false);
+      }
+    }
+  }
+
+  nodeData.forEach((entry, key) => {
+    if (!entry || !Array.isArray(entry.diagonals)) {
+      return;
+    }
+
+    const parts = key.split(",");
+    const nodeX = parseInt(parts[0], 10);
+    const nodeY = parseInt(parts[1], 10);
+
+    for (let i = 0; i < entry.diagonals.length; i++) {
+      const diag = entry.diagonals[i];
+      if (!diag || !diag.start || !diag.end) {
+        continue;
+      }
+
+      const widthA = edgeWidthCache.get(getEdgeWidthKey(nodeX, nodeY, diag.dirA));
+      const widthB = edgeWidthCache.get(getEdgeWidthKey(nodeX, nodeY, diag.dirB));
+      const combined = ((widthA || baseWidth) + (widthB || baseWidth)) / 2;
+
+      ctx.beginPath();
+      ctx.lineWidth = Math.max(1, combined);
+      ctx.moveTo(diag.start.x, diag.start.y);
+      ctx.lineTo(diag.end.x, diag.end.y);
+      ctx.stroke();
+    }
+  });
+
+  ctx.restore();
+
+  if (this.hideOuterBorder) {
+    ctx.save();
+    ctx.fillStyle = this.backgroundColor;
+    const lastRow = rows - 1;
+    const lastColumn = columns - 1;
+    ctx.fillRect(0, 0, layout.canvasWidth, layout.rowHeights[0]);
+    ctx.fillRect(0, layout.rowStarts[lastRow], layout.canvasWidth, layout.rowHeights[lastRow]);
+    ctx.fillRect(0, 0, layout.columnWidths[0], layout.canvasHeight);
+    ctx.fillRect(layout.columnStarts[lastColumn], 0, layout.columnWidths[lastColumn], layout.canvasHeight);
+    ctx.restore();
+  }
+};
+
 Maze.prototype.getWallShape = function (x, y, rect) {
-  if (!this.usesOrganicWalls()) {
+  if (this.usesStylizedLineWalls()) {
+    return { type: "grid" };
+  }
+
+  if (this.wallStyle === "grid" || this.wallShapeVariance <= 0) {
     return { type: "grid" };
   }
 
@@ -986,215 +1172,6 @@ Maze.prototype.drawWallCell = function (ctx, rect, shape) {
   ctx.restore();
 };
 
-Maze.prototype.drawOrganicMaze = function (ctx, layout) {
-  const rows = this.matrix.length;
-  if (!rows) {
-    return;
-  }
-
-  const columns = this.matrix[0].length;
-  const columnCenters = new Array(columns);
-  const rowCenters = new Array(rows);
-
-  if (!(this.organicEdgeCache instanceof Map)) {
-    this.organicEdgeCache = new Map();
-  }
-
-  if (!(this.organicNodeCache instanceof Map)) {
-    this.organicNodeCache = new Map();
-  }
-
-  for (let i = 0; i < columns; i++) {
-    columnCenters[i] = layout.columnStarts[i] + layout.columnWidths[i] / 2;
-  }
-
-  for (let j = 0; j < rows; j++) {
-    rowCenters[j] = layout.rowStarts[j] + layout.rowHeights[j] / 2;
-  }
-
-  const variance = Math.max(0, Math.min(1, this.wallShapeVariance || 0));
-  const baseWidth = Math.max(1, this.passageSize);
-  const minWidth = Math.max(1, baseWidth * (1 - 0.45 * variance));
-  const maxWidth = Math.max(minWidth, baseWidth * (1 + 0.65 * variance));
-
-  const randomInRange = (min, max) => Math.random() * (max - min) + min;
-
-  const getNodeKey = (x, y) => `${x},${y}`;
-  const getEdgeKey = (x1, y1, x2, y2) => {
-    if (x1 > x2 || (x1 === x2 && y1 > y2)) {
-      const swapX = x1;
-      const swapY = y1;
-      x1 = x2;
-      y1 = y2;
-      x2 = swapX;
-      y2 = swapY;
-    }
-    return `${x1},${y1}|${x2},${y2}`;
-  };
-
-  const getBoundaryKey = (x, y, axis, index, forward) =>
-    `${x},${y}|${axis}${index}:${forward ? "1" : "-1"}`;
-
-  const getNodeRadius = (x, y) => {
-    const key = getNodeKey(x, y);
-    if (!this.organicNodeCache.has(key)) {
-      const radius = randomInRange(minWidth, maxWidth) / 2;
-      this.organicNodeCache.set(key, radius);
-    }
-    return this.organicNodeCache.get(key);
-  };
-
-  const getEdgeShape = (x1, y1, x2, y2) => {
-    const key = getEdgeKey(x1, y1, x2, y2);
-    if (!this.organicEdgeCache.has(key)) {
-      const width = randomInRange(minWidth, maxWidth);
-      const startX = columnCenters[x1];
-      const startY = rowCenters[y1];
-      const endX = columnCenters[x2];
-      const endY = rowCenters[y2];
-      const points = this.generateOrganicPolyline(startX, startY, endX, endY, variance, {
-        maxDetour: Math.max(width * 1.5, this.wallThickness * 1.25),
-      });
-      this.organicEdgeCache.set(key, {
-        width,
-        points,
-      });
-    }
-
-    return this.organicEdgeCache.get(key);
-  };
-
-  const getBoundaryShape = (x, y, boundaryIndex, horizontal, forward) => {
-    const axisKey = horizontal ? "h" : "v";
-    const key = getBoundaryKey(x, y, axisKey, boundaryIndex, forward);
-    if (!this.organicEdgeCache.has(key)) {
-      const width = randomInRange(minWidth, maxWidth);
-      const startX = columnCenters[x];
-      const startY = rowCenters[y];
-      let endX = startX;
-      let endY = startY;
-      if (horizontal) {
-        const boundaryStart = layout.columnStarts[boundaryIndex];
-        const boundaryWidth = layout.columnWidths[boundaryIndex];
-        endX = forward ? boundaryStart + boundaryWidth : boundaryStart;
-      } else {
-        const boundaryStart = layout.rowStarts[boundaryIndex];
-        const boundaryHeight = layout.rowHeights[boundaryIndex];
-        endY = forward ? boundaryStart + boundaryHeight : boundaryStart;
-      }
-
-      const points = this.generateOrganicPolyline(startX, startY, endX, endY, variance, {
-        maxDetour: Math.max(width * 1.35, this.wallThickness * 1.25),
-      });
-
-      this.organicEdgeCache.set(key, {
-        width,
-        points,
-      });
-    }
-
-    return this.organicEdgeCache.get(key);
-  };
-
-  const carveEdge = (x1, y1, x2, y2) => {
-    const shape = getEdgeShape(x1, y1, x2, y2);
-    const points = Array.isArray(shape.points) ? shape.points : [];
-    if (points.length < 2) {
-      return;
-    }
-    ctx.beginPath();
-    ctx.lineWidth = shape.width;
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      const point = points[i];
-      ctx.lineTo(point.x, point.y);
-    }
-    ctx.stroke();
-  };
-
-  const carveBoundaryEdge = (x, y, boundaryIndex, horizontal, forward) => {
-    const shape = getBoundaryShape(x, y, boundaryIndex, horizontal, forward);
-    const points = Array.isArray(shape.points) ? shape.points : [];
-    if (points.length < 2) {
-      return;
-    }
-    ctx.beginPath();
-    ctx.lineWidth = shape.width;
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      const point = points[i];
-      ctx.lineTo(point.x, point.y);
-    }
-    ctx.stroke();
-  };
-
-  const carveNode = (x, y) => {
-    const radius = getNodeRadius(x, y);
-    if (radius <= 0) {
-      return;
-    }
-    ctx.beginPath();
-    ctx.arc(columnCenters[x], rowCenters[y], radius, 0, Math.PI * 2);
-    ctx.fill();
-  };
-
-  ctx.save();
-  ctx.strokeStyle = this.color;
-  ctx.fillStyle = this.color;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  for (let y = 1; y < rows; y += 2) {
-    for (let x = 1; x < columns; x += 2) {
-      if (this.matrix[y].charAt(x) !== "0") {
-        continue;
-      }
-
-      carveNode(x, y);
-
-      if (x + 2 < columns && this.matrix[y].charAt(x + 1) === "0" && this.matrix[y].charAt(x + 2) === "0") {
-        carveEdge(x, y, x + 2, y);
-      } else if (x + 1 < columns && this.matrix[y].charAt(x + 1) === "0") {
-        carveBoundaryEdge(x, y, x + 1, true, true);
-      }
-
-      if (y + 2 < rows && this.matrix[y + 1].charAt(x) === "0" && this.matrix[y + 2].charAt(x) === "0") {
-        carveEdge(x, y, x, y + 2);
-      } else if (y + 1 < rows && this.matrix[y + 1].charAt(x) === "0") {
-        carveBoundaryEdge(x, y, y + 1, false, true);
-      }
-
-      if (
-        this.matrix[y].charAt(x - 1) === "0" &&
-        (x - 2 < 0 || this.matrix[y].charAt(x - 2) !== "0")
-      ) {
-        carveBoundaryEdge(x, y, x - 1, true, false);
-      }
-
-      if (
-        this.matrix[y - 1] &&
-        this.matrix[y - 1].charAt(x) === "0" &&
-        (y - 2 < 0 || this.matrix[y - 2].charAt(x) !== "0")
-      ) {
-        carveBoundaryEdge(x, y, y - 1, false, false);
-      }
-    }
-  }
-
-  ctx.restore();
-
-  if (this.hideOuterBorder) {
-    ctx.save();
-    ctx.fillStyle = this.backgroundColor;
-    const lastRow = rows - 1;
-    const lastColumn = columns - 1;
-    ctx.fillRect(0, 0, layout.canvasWidth, layout.rowHeights[0]);
-    ctx.fillRect(0, layout.rowStarts[lastRow], layout.canvasWidth, layout.rowHeights[lastRow]);
-    ctx.fillRect(0, 0, layout.columnWidths[0], layout.canvasHeight);
-    ctx.fillRect(layout.columnStarts[lastColumn], 0, layout.columnWidths[lastColumn], layout.canvasHeight);
-    ctx.restore();
-  }
-};
 
 Maze.prototype.traceCurvedMaskPath = function (ctx, rect, shape) {
   const { x, y, width, height } = rect;
@@ -1259,10 +1236,10 @@ Maze.prototype.draw = function () {
 
   // Set maze collor
   ctx.fillStyle = this.color;
-  const organicWalls = this.usesOrganicWalls();
+  const stylizedWalls = this.usesStylizedLineWalls();
 
-  if (organicWalls) {
-    this.drawOrganicMaze(ctx, layout);
+  if (stylizedWalls) {
+    this.drawStylizedMaze(ctx, layout);
     return;
   }
 
@@ -1305,12 +1282,8 @@ Maze.prototype.draw = function () {
       let pixel = parseInt(this.matrix[i].charAt(j), 10);
       if (pixel) {
         const rect = this.getCellRect(j, i);
-        if (organicWalls) {
-          const shape = this.getWallShape(j, i, rect);
-          this.drawWallCell(ctx, rect, shape);
-        } else {
-          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-        }
+        const shape = this.getWallShape(j, i, rect);
+        this.drawWallCell(ctx, rect, shape);
       }
     }
   }
