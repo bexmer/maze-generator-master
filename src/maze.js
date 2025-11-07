@@ -33,17 +33,20 @@ function Maze(args) {
   this.passageSize = Math.max(1, isNaN(parsedPassageSize) ? 1 : parsedPassageSize);
   this.wallSize = this.wallThickness;
   this.removeWalls = parseInt(settings["removeWalls"], 10);
-  this.randomizePassages = !!settings["randomizePassages"];
-  const parsedRandomMin = parseInt(settings["passageRandomMin"], 10);
-  const parsedRandomMax = parseInt(settings["passageRandomMax"], 10);
-  let randomMin = Math.max(1, isNaN(parsedRandomMin) ? this.passageSize : parsedRandomMin);
-  let randomMax = Math.max(randomMin, isNaN(parsedRandomMax) ? randomMin : parsedRandomMax);
-  if (!this.randomizePassages) {
-    randomMin = this.passageSize;
-    randomMax = this.passageSize;
+  this.randomizeWalls = !!settings["randomizeWalls"];
+  const parsedWallRandomMin = parseInt(settings["wallRandomMin"], 10);
+  const parsedWallRandomMax = parseInt(settings["wallRandomMax"], 10);
+  let wallRandomMin = Math.max(1, isNaN(parsedWallRandomMin) ? this.wallThickness : parsedWallRandomMin);
+  let wallRandomMax = Math.max(
+    wallRandomMin,
+    isNaN(parsedWallRandomMax) ? wallRandomMin : parsedWallRandomMax
+  );
+  if (!this.randomizeWalls) {
+    wallRandomMin = this.wallThickness;
+    wallRandomMax = this.wallThickness;
   }
-  this.passageRandomMin = randomMin;
-  this.passageRandomMax = randomMax;
+  this.wallRandomMin = wallRandomMin;
+  this.wallRandomMax = wallRandomMax;
   this.hideOuterBorder = !!settings["removeOuterBorder"];
   const parsedExtraExits = parseInt(settings["extraExits"], 10);
   this.extraExitCount = Math.max(0, isNaN(parsedExtraExits) ? 0 : parsedExtraExits);
@@ -66,6 +69,15 @@ function Maze(args) {
   this.maxSolve = parseInt(settings["maxSolve"], 1);
   this.maxWallsRemove = parseInt(settings["maxWallsRemove"], 10);
   this.layoutCache = null;
+  const allowedWallStyles = new Set(["grid", "curved", "angled", "organic"]);
+  const requestedStyle = typeof settings["wallStyle"] === "string"
+    ? settings["wallStyle"].toLowerCase()
+    : "grid";
+  this.wallStyle = allowedWallStyles.has(requestedStyle) ? requestedStyle : "grid";
+  const parsedVariance = parseInt(settings["wallShapeVariance"], 10);
+  const clampedVariance = Math.min(100, Math.max(0, isNaN(parsedVariance) ? 0 : parsedVariance));
+  this.wallShapeVariance = clampedVariance / 100;
+  this.wallShapeCache = new Map();
 }
 
 Maze.prototype.generate = function () {
@@ -109,26 +121,26 @@ Maze.prototype.computeLayout = function () {
   const randomIntInRange = (min, max) =>
     Math.floor(Math.random() * (max - min + 1)) + min;
 
-  const passageColumnWidths = new Array(this.width);
-  const passageRowHeights = new Array(this.height);
+  const verticalWallThicknesses = new Array(this.width + 1);
+  const horizontalWallThicknesses = new Array(this.height + 1);
 
-  for (let i = 0; i < passageColumnWidths.length; i++) {
-    passageColumnWidths[i] = this.randomizePassages
-      ? randomIntInRange(this.passageRandomMin, this.passageRandomMax)
-      : this.passageSize;
+  for (let i = 0; i < verticalWallThicknesses.length; i++) {
+    verticalWallThicknesses[i] = this.randomizeWalls
+      ? randomIntInRange(this.wallRandomMin, this.wallRandomMax)
+      : this.wallThickness;
   }
 
-  for (let i = 0; i < passageRowHeights.length; i++) {
-    passageRowHeights[i] = this.randomizePassages
-      ? randomIntInRange(this.passageRandomMin, this.passageRandomMax)
-      : this.passageSize;
+  for (let i = 0; i < horizontalWallThicknesses.length; i++) {
+    horizontalWallThicknesses[i] = this.randomizeWalls
+      ? randomIntInRange(this.wallRandomMin, this.wallRandomMax)
+      : this.wallThickness;
   }
 
   for (let i = 0; i < columns; i++) {
     columnStarts[i] = columnOffset;
     const width = i % 2 === 0
-      ? this.wallThickness
-      : passageColumnWidths[(i - 1) / 2];
+      ? verticalWallThicknesses[i / 2]
+      : this.passageSize;
     columnWidths[i] = width;
     columnOffset += width;
   }
@@ -140,8 +152,8 @@ Maze.prototype.computeLayout = function () {
   for (let i = 0; i < rows; i++) {
     rowStarts[i] = rowOffset;
     const height = i % 2 === 0
-      ? this.wallThickness
-      : passageRowHeights[(i - 1) / 2];
+      ? horizontalWallThicknesses[i / 2]
+      : this.passageSize;
     rowHeights[i] = height;
     rowOffset += height;
   }
@@ -157,9 +169,9 @@ Maze.prototype.computeLayout = function () {
     height: this.height,
     wallThickness: this.wallThickness,
     passageSize: this.passageSize,
-    randomizePassages: this.randomizePassages,
-    passageRandomMin: this.passageRandomMin,
-    passageRandomMax: this.passageRandomMax,
+    randomizeWalls: this.randomizeWalls,
+    wallRandomMin: this.wallRandomMin,
+    wallRandomMax: this.wallRandomMax,
   };
 };
 
@@ -170,9 +182,9 @@ Maze.prototype.getLayout = function () {
     this.layoutCache.height !== this.height ||
     this.layoutCache.wallThickness !== this.wallThickness ||
     this.layoutCache.passageSize !== this.passageSize ||
-    this.layoutCache.randomizePassages !== this.randomizePassages ||
-    this.layoutCache.passageRandomMin !== this.passageRandomMin ||
-    this.layoutCache.passageRandomMax !== this.passageRandomMax
+    this.layoutCache.randomizeWalls !== this.randomizeWalls ||
+    this.layoutCache.wallRandomMin !== this.wallRandomMin ||
+    this.layoutCache.wallRandomMax !== this.wallRandomMax
   ) {
     this.layoutCache = this.computeLayout();
   }
@@ -685,6 +697,171 @@ Maze.prototype.removeMazeWalls = function () {
   }
 };
 
+Maze.prototype.usesOrganicWalls = function () {
+  return this.wallStyle !== "grid" && this.wallShapeVariance > 0;
+};
+
+Maze.prototype.getWallShapeKey = function (x, y) {
+  return `${x},${y}`;
+};
+
+Maze.prototype.getWallShape = function (x, y, rect) {
+  if (!this.usesOrganicWalls()) {
+    return { type: "grid" };
+  }
+
+  if (!(this.wallShapeCache instanceof Map)) {
+    this.wallShapeCache = new Map();
+  }
+
+  const key = this.getWallShapeKey(x, y);
+  if (!this.wallShapeCache.has(key)) {
+    const shape = this.createWallShape(rect);
+    this.wallShapeCache.set(key, shape);
+  }
+
+  return this.wallShapeCache.get(key);
+};
+
+Maze.prototype.createWallShape = function (rect) {
+  const variance = Math.max(0, Math.min(1, this.wallShapeVariance || 0));
+  if (variance <= 0) {
+    return { type: "grid" };
+  }
+
+  let style = this.wallStyle;
+  if (style === "organic") {
+    style = Math.random() < 0.5 ? "curved" : "angled";
+  }
+
+  if (style === "curved") {
+    return this.createCurvedWallShape(rect, variance);
+  }
+
+  if (style === "angled") {
+    return this.createAngledWallShape(rect, variance);
+  }
+
+  return { type: "grid" };
+};
+
+Maze.prototype.createCurvedWallShape = function (rect, variance) {
+  const width = rect.width;
+  const height = rect.height;
+  if (width <= 0 || height <= 0) {
+    return { type: "grid" };
+  }
+
+  const maxRadius = Math.min(width, height) * 0.5 * variance;
+  if (maxRadius <= 0) {
+    return { type: "grid" };
+  }
+
+  const randomRadius = () => Math.max(0, Math.random() * maxRadius);
+
+  return {
+    type: "curved",
+    radii: {
+      tl: randomRadius(),
+      tr: randomRadius(),
+      br: randomRadius(),
+      bl: randomRadius(),
+    },
+  };
+};
+
+Maze.prototype.createAngledWallShape = function (rect, variance) {
+  const width = rect.width;
+  const height = rect.height;
+  if (width <= 0 || height <= 0) {
+    return { type: "grid" };
+  }
+
+  const spanX = Math.max(1, width * 0.45 * variance);
+  const spanY = Math.max(1, height * 0.45 * variance);
+  const jitter = (span) => (Math.random() * 2 - 1) * span;
+  const clampValue = (value, min, max) => Math.min(max, Math.max(min, value));
+
+  const marginX = spanX;
+  const marginY = spanY;
+
+  const points = [
+    { x: clampValue(jitter(marginX), -marginX, marginX), y: clampValue(jitter(marginY), -marginY, marginY) },
+    { x: clampValue(width * 0.35 + jitter(spanX * 0.5), -marginX, width + marginX), y: clampValue(jitter(marginY), -marginY, marginY) },
+    { x: clampValue(width + jitter(marginX), -marginX, width + marginX), y: clampValue(jitter(marginY), -marginY, marginY) },
+    { x: clampValue(width + jitter(marginX), -marginX, width + marginX), y: clampValue(height * 0.35 + jitter(spanY * 0.5), -marginY, height + marginY) },
+    { x: clampValue(width + jitter(marginX * 0.7), -marginX, width + marginX), y: clampValue(height + jitter(marginY), -marginY, height + marginY) },
+    { x: clampValue(width * 0.65 + jitter(spanX * 0.5), -marginX, width + marginX), y: clampValue(height + jitter(marginY), -marginY, height + marginY) },
+    { x: clampValue(jitter(marginX), -marginX, marginX), y: clampValue(height + jitter(marginY), -marginY, height + marginY) },
+    { x: clampValue(jitter(marginX), -marginX, marginX), y: clampValue(height * 0.65 + jitter(spanY * 0.5), -marginY, height + marginY) },
+  ];
+
+  return { type: "angled", points };
+};
+
+Maze.prototype.drawWallCell = function (ctx, rect, shape) {
+  if (!shape || shape.type === "grid") {
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    return;
+  }
+
+  ctx.save();
+  ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+
+  if (shape.type === "curved") {
+    this.traceCurvedMaskPath(ctx, rect, shape);
+  } else if (shape.type === "angled") {
+    this.traceAngledMaskPath(ctx, rect, shape);
+  } else {
+    ctx.rect(rect.x, rect.y, rect.width, rect.height);
+  }
+
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+};
+
+Maze.prototype.traceCurvedMaskPath = function (ctx, rect, shape) {
+  const { x, y, width, height } = rect;
+  const radii = (shape && shape.radii) || {};
+  const clampRadius = (radius) => {
+    const maxRadius = Math.min(width, height) / 2;
+    return Math.max(0, Math.min(maxRadius, radius || 0));
+  };
+
+  const tl = clampRadius(radii.tl);
+  const tr = clampRadius(radii.tr);
+  const br = clampRadius(radii.br);
+  const bl = clampRadius(radii.bl);
+
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + width - tr, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + tr);
+  ctx.lineTo(x + width, y + height - br);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - br, y + height);
+  ctx.lineTo(x + bl, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - bl);
+  ctx.lineTo(x, y + tl);
+  ctx.quadraticCurveTo(x, y, x + tl, y);
+};
+
+Maze.prototype.traceAngledMaskPath = function (ctx, rect, shape) {
+  const points = Array.isArray(shape && shape.points) ? shape.points : null;
+  if (!points || points.length < 3) {
+    ctx.rect(rect.x, rect.y, rect.width, rect.height);
+    return;
+  }
+
+  ctx.moveTo(rect.x + points[0].x, rect.y + points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    const point = points[i];
+    ctx.lineTo(rect.x + point.x, rect.y + point.y);
+  }
+};
+
 Maze.prototype.draw = function () {
   const canvas = document.getElementById("maze");
   if (!canvas || !this.matrix.length) {
@@ -710,6 +887,7 @@ Maze.prototype.draw = function () {
 
   // Set maze collor
   ctx.fillStyle = this.color;
+  const organicWalls = this.usesOrganicWalls();
 
   const row_count = this.matrix.length;
   const gateEntry = getEntryNode(this.entryNodes, "start", true);
@@ -750,7 +928,12 @@ Maze.prototype.draw = function () {
       let pixel = parseInt(this.matrix[i].charAt(j), 10);
       if (pixel) {
         const rect = this.getCellRect(j, i);
-        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        if (organicWalls) {
+          const shape = this.getWallShape(j, i, rect);
+          this.drawWallCell(ctx, rect, shape);
+        } else {
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
       }
     }
   }

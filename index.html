@@ -133,19 +133,33 @@
                                 <span id="wall-size-value" class="value-display">10 px</span>
                         </p>
                         <p>
+                                <label for="randomize-wall">Randomize wall thickness:</label>
+                                <input id="randomize-wall" type="checkbox" name="randomize-wall" value="1">
+                        </p>
+                        <p class="random-range">
+                                <label for="wall-size-min">Wall thickness range (px):</label>
+                                <input id="wall-size-min" type="number" name="wall-size-min" value="6" min="1" max="60">
+                                <span aria-hidden="true" class="range-separator">to</span>
+                                <input id="wall-size-max" type="number" name="wall-size-max" value="18" min="1" max="60">
+                        </p>
+                        <p>
                                 <label for="passage-size">Passage width:</label>
                                 <input id="passage-size" type="range" name="passage-size" value="10" min="1" max="60">
                                 <span id="passage-size-value" class="value-display">10 px</span>
                         </p>
                         <p>
-                                <label for="randomize-passage">Randomize passage width:</label>
-                                <input id="randomize-passage" type="checkbox" name="randomize-passage" value="1">
+                                <label for="wall-style">Wall style:</label>
+                                <select id="wall-style" name="wall-style">
+                                        <option value="grid" selected="selected">grid</option>
+                                        <option value="curved">curved</option>
+                                        <option value="angled">angled</option>
+                                        <option value="organic">organic mix</option>
+                                </select>
                         </p>
-                        <p class="random-range">
-                                <label for="passage-size-min">Random range (px):</label>
-                                <input id="passage-size-min" type="number" name="passage-size-min" value="6" min="1" max="60">
-                                <span aria-hidden="true" class="range-separator">to</span>
-                                <input id="passage-size-max" type="number" name="passage-size-max" value="20" min="1" max="60">
+                        <p>
+                                <label for="wall-variance">Shape variance:</label>
+                                <input id="wall-variance" type="range" name="wall-variance" value="55" min="0" max="100">
+                                <span id="wall-variance-value" class="value-display">55%</span>
                         </p>
 
                         <p>
