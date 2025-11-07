@@ -707,30 +707,6 @@ Maze.prototype.getOrganicAnglePalette = function () {
   return [0, 30, 45, 60, 90, 120];
 };
 
-Maze.prototype.quantizeOrganicAngle = function (angle) {
-  const palette = this.getOrganicAnglePalette();
-  const sign = angle < 0 ? -1 : 1;
-  const absAngle = Math.abs((angle * 180) / Math.PI);
-  let closest = palette[0];
-  let smallestDelta = Math.abs(absAngle - palette[0]);
-  for (let i = 1; i < palette.length; i++) {
-    const candidate = palette[i];
-    const delta = Math.abs(absAngle - candidate);
-    if (delta < smallestDelta) {
-      smallestDelta = delta;
-      closest = candidate;
-    }
-  }
-  let quantized = (closest * Math.PI) / 180;
-  if (Math.abs(Math.abs(quantized) - Math.PI / 2) < 1e-3) {
-    const adjust = (Math.PI / 180) * 1.5;
-    quantized = sign * (Math.PI / 2 - adjust);
-  } else {
-    quantized *= sign;
-  }
-  return quantized;
-};
-
 Maze.prototype.generateOrganicPolyline = function (
   startX,
   startY,
@@ -756,98 +732,134 @@ Maze.prototype.generateOrganicPolyline = function (
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const randomInRange = (min, max) => Math.random() * (max - min) + min;
 
-  let interiorSlots = Math.round(clampedVariance * 6);
-  if (clampedVariance > 0 && interiorSlots === 0) {
-    interiorSlots = 1;
+  let segmentCount = Math.round(clampedVariance * 5);
+  if (clampedVariance > 0 && segmentCount === 0) {
+    segmentCount = 1;
   }
-  interiorSlots = Math.min(6, Math.max(0, interiorSlots));
+  segmentCount = Math.min(6, Math.max(0, segmentCount));
 
-  if (interiorSlots === 0) {
+  if (segmentCount === 0) {
     return [
       { x: startX, y: startY },
       { x: endX, y: endY },
     ];
   }
 
-  const baseSpacing = 1 / (interiorSlots + 1);
-  const minSpacing = Math.max(0.12, baseSpacing * 0.6);
-  const params = [{ pos: 0, offset: 0 }];
-  const levels = [-1, -2 / 3, -1 / 3, 0, 1 / 3, 2 / 3, 1].map((ratio) => ratio * maxDetour);
+  const anglePalette = this.getOrganicAnglePalette();
+  const orientedAngles = [];
+  for (let i = 0; i < anglePalette.length; i++) {
+    const base = anglePalette[i];
+    if (base === 0) {
+      orientedAngles.push(0);
+      continue;
+    }
+    if (base === 90) {
+      continue;
+    }
+    const radians = (base * Math.PI) / 180;
+    orientedAngles.push(radians, -radians);
+  }
+  if (!orientedAngles.length) {
+    orientedAngles.push(0);
+  }
 
-  let previousPos = 0;
-  let previousOffset = 0;
+  const minSegment = Math.max(2, axisLength / (segmentCount + 1) * 0.6);
+  const maxSegment = Math.max(minSegment, axisLength / (segmentCount + 1) * 1.45);
 
-  for (let i = 0; i < interiorSlots; i++) {
-    const remaining = interiorSlots - i - 1;
-    const minRemaining = minSpacing * (remaining + 1);
-    const maxPos = clamp(1 - minRemaining, previousPos + minSpacing, 1 - minSpacing);
-    if (maxPos - (previousPos + minSpacing) <= 1e-3) {
+  const localPoints = [{ progress: 0, offset: 0 }];
+  let progress = 0;
+  let offset = 0;
+
+  const chooseAngle = (biasTowardCenter) => {
+    const pool = [];
+    for (let i = 0; i < orientedAngles.length; i++) {
+      const angle = orientedAngles[i];
+      if (Math.abs(angle) >= Math.PI / 2 - 0.05) {
+        continue;
+      }
+      if (biasTowardCenter && Math.abs(offset) > 0.01) {
+        if (offset > 0 && angle > 0) {
+          continue;
+        }
+        if (offset < 0 && angle < 0) {
+          continue;
+        }
+      }
+      pool.push(angle);
+    }
+
+    if (!pool.length) {
+      return 0;
+    }
+
+    const index = Math.floor(Math.random() * pool.length);
+    return pool[index];
+  };
+
+  for (let i = 0; i < segmentCount; i++) {
+    const segmentsLeft = segmentCount - i - 1;
+    const remainingAxis = axisLength - progress;
+    if (remainingAxis <= minSegment) {
       break;
     }
 
-    const jitter = randomInRange(-baseSpacing * 0.35, baseSpacing * 0.35);
-    const targetPos = baseSpacing * (i + 1) + jitter;
-    const pos = clamp(targetPos, previousPos + minSpacing, maxPos);
+    const maxForThis = Math.max(minSegment, Math.min(maxSegment, remainingAxis - segmentsLeft * minSegment));
+    const minForThis = Math.max(minSegment, Math.min(maxForThis, remainingAxis / (segmentsLeft + 1) * 0.7));
 
-    let levelIndex = Math.floor(Math.random() * levels.length);
-    if (Math.abs(levels[levelIndex] - previousOffset) < maxDetour * 0.2) {
-      levelIndex = (levelIndex + Math.floor(levels.length / 2)) % levels.length;
+    let dxLocal = minForThis;
+    let dyLocal = 0;
+    let attempts = 0;
+    const biasCenter = Math.abs(offset) > maxDetour * 0.55;
+    while (attempts < 8) {
+      const candidateAngle = chooseAngle(biasCenter);
+      const candidateDx = clamp(randomInRange(minForThis, maxForThis), minSegment, maxForThis);
+      const slope = Math.tan(candidateAngle);
+      const candidateDy = candidateDx * slope;
+      if (Math.abs(offset + candidateDy) <= maxDetour * 0.95) {
+        dxLocal = candidateDx;
+        dyLocal = candidateDy;
+        break;
+      }
+      attempts++;
     }
 
-    if (Math.abs(previousOffset) > maxDetour * 0.75) {
-      levelIndex = previousOffset > 0 ? 1 : levels.length - 2;
+    progress += dxLocal;
+    offset = clamp(offset + dyLocal, -maxDetour, maxDetour);
+    localPoints.push({ progress, offset });
+  }
+
+  if (axisLength - progress > 1) {
+    progress = axisLength;
+    localPoints.push({ progress, offset });
+  } else {
+    progress = axisLength;
+  }
+
+  if (Math.abs(offset) > 0.5) {
+    const settle = clamp(offset * 0.35, -maxDetour * 0.4, maxDetour * 0.4);
+    if (Math.abs(settle - offset) > 0.25) {
+      localPoints.push({ progress: axisLength, offset: settle });
+      offset = settle;
     }
-
-    let offset = levels[levelIndex];
-    offset = clamp(offset, -maxDetour, maxDetour);
-    params.push({ pos, offset });
-    previousPos = pos;
-    previousOffset = offset;
-  }
-
-  if (Math.abs(previousOffset) > maxDetour * 0.45) {
-    const settlePos = clamp(1 - minSpacing * 0.75, previousPos + minSpacing * 0.5, 1 - minSpacing * 0.5);
-    params.push({ pos: settlePos, offset: previousOffset * 0.4 });
-    previousOffset *= 0.4;
-  }
-
-  params.push({ pos: 1, offset: previousOffset });
-  if (Math.abs(previousOffset) > 0.05) {
-    params.push({ pos: 1, offset: 0 });
-  }
-
-  for (let i = 1; i < params.length; i++) {
-    const current = params[i];
-    const previous = params[i - 1];
-    const deltaPos = current.pos - previous.pos;
-
-    if (Math.abs(deltaPos) < 1e-6) {
-      current.offset = clamp(current.offset, -maxDetour, maxDetour);
-      continue;
-    }
-
-    const dxLocal = axisLength * deltaPos;
-    const targetAngle = Math.atan2(current.offset - previous.offset, dxLocal);
-    const quantizedAngle = this.quantizeOrganicAngle(targetAngle);
-    const desiredOffset = previous.offset + Math.tan(quantizedAngle) * dxLocal;
-    current.offset = clamp(desiredOffset, -maxDetour, maxDetour);
+    localPoints.push({ progress: axisLength, offset: 0 });
+  } else {
+    localPoints.push({ progress: axisLength, offset: 0 });
   }
 
   const points = [];
-  for (let i = 0; i < params.length; i++) {
-    const param = params[i];
-    const axisProgress = clamp(param.pos, 0, 1);
-    const offset = clamp(param.offset, -maxDetour, maxDetour);
-    const x = startX + axisDirX * axisLength * axisProgress + perpDirX * offset;
-    const y = startY + axisDirY * axisLength * axisProgress + perpDirY * offset;
-    if (points.length === 0 || Math.hypot(points[points.length - 1].x - x, points[points.length - 1].y - y) > 0.5) {
+  for (let i = 0; i < localPoints.length; i++) {
+    const local = localPoints[i];
+    const x = startX + axisDirX * local.progress + perpDirX * local.offset;
+    const y = startY + axisDirY * local.progress + perpDirY * local.offset;
+    if (
+      points.length === 0 ||
+      Math.hypot(points[points.length - 1].x - x, points[points.length - 1].y - y) > 0.5
+    ) {
       points.push({ x, y });
     }
   }
 
-  if (points.length === 1) {
-    points.push({ x: endX, y: endY });
-  } else if (Math.hypot(points[points.length - 1].x - endX, points[points.length - 1].y - endY) > 0.5) {
+  if (points.length === 1 || Math.hypot(points[points.length - 1].x - endX, points[points.length - 1].y - endY) > 0.5) {
     points.push({ x: endX, y: endY });
   }
 
