@@ -1,451 +1,305 @@
-"""Utilities for generating organic-looking mazes over random point sets.
+"""Organic, graph-based maze generator built on SciPy's Delaunay triangulation.
 
-This module exposes :func:`generate_organic_maze`, which builds a non-grid
-maze by sampling random points, computing their Delaunay triangulation and
-running a maze-carving algorithm (Prim or Kruskal) over the resulting graph.
+This module exposes :func:`generate_organic_maze` which builds a non-grid maze
+by sampling random points inside a canvas, computing their Delaunay
+triangulation and carving an organic spanning tree with either Prim's or
+Kruskal's algorithm.  The remaining edges become the maze walls.
 
-The remaining, non-selected edges act as the maze walls.  Before returning,
-each wall segment is jittered slightly so that renderers can display
-hand-drawn looking strokes instead of perfectly straight lines.
-
-Example
--------
->>> layout = generate_organic_maze(800, 600, base_point_count=180)
->>> layout.keys()
-dict_keys(['width', 'height', 'walls'])
-
-The caller can serialise ``layout`` to JSON and draw the segments directly in
-SVG or Canvas.
+The resulting structure is easy to serialise to JSON so that JavaScript or
+another renderer can draw the jittered wall segments with a hand-drawn look.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot, isclose
+from heapq import heappop, heappush
+from math import hypot
 import random
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, MutableMapping, Optional, Sequence, Tuple
+
+import numpy as np
+from scipy.spatial import Delaunay
 
 Point = Tuple[float, float]
 Edge = Tuple[int, int]
 
 
 @dataclass(frozen=True)
-class Triangle:
-    """Triangle used during the Bowyer-Watson triangulation routine."""
+class Wall:
+    """Represents a jittered wall segment ready for JSON serialisation."""
 
-    a: int
-    b: int
-    c: int
-    cx: float
-    cy: float
-    radius_sq: float
+    start: Point
+    end: Point
+    intermediates: Tuple[Point, ...]
 
-
-def _circumcircle(points: Sequence[Point], a: int, b: int, c: int) -> Triangle:
-    ax, ay = points[a]
-    bx, by = points[b]
-    cx, cy = points[c]
-
-    d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-    if isclose(d, 0.0):
-        # Points are colinear; perturb slightly by taking the midpoint.
-        mx = (ax + bx + cx) / 3.0
-        my = (ay + by + cy) / 3.0
-        r_sq = max(
-            (ax - mx) ** 2 + (ay - my) ** 2,
-            (bx - mx) ** 2 + (by - my) ** 2,
-            (cx - mx) ** 2 + (cy - my) ** 2,
-        )
-        return Triangle(a, b, c, mx, my, r_sq)
-
-    ax2_ay2 = ax * ax + ay * ay
-    bx2_by2 = bx * bx + by * by
-    cx2_cy2 = cx * cx + cy * cy
-
-    ux = (
-        ax2_ay2 * (by - cy)
-        + bx2_by2 * (cy - ay)
-        + cx2_cy2 * (ay - by)
-    ) / d
-    uy = (
-        ax2_ay2 * (cx - bx)
-        + bx2_by2 * (ax - cx)
-        + cx2_cy2 * (bx - ax)
-    ) / d
-
-    r_sq = (ux - ax) ** 2 + (uy - ay) ** 2
-    return Triangle(a, b, c, ux, uy, r_sq)
+    def as_mapping(self) -> Dict[str, object]:
+        data: Dict[str, object] = {
+            "start": {"x": self.start[0], "y": self.start[1]},
+            "end": {"x": self.end[0], "y": self.end[1]},
+        }
+        if self.intermediates:
+            data["points_intermediate"] = [
+                {"x": x, "y": y} for (x, y) in self.intermediates
+            ]
+        return data
 
 
-def _point_in_circumcircle(triangle: Triangle, point: Point) -> bool:
-    px, py = point
-    dx = triangle.cx - px
-    dy = triangle.cy - py
-    return dx * dx + dy * dy <= triangle.radius_sq
+def _random_points(
+    width: float,
+    height: float,
+    count: int,
+    zones: Optional[Sequence[MutableMapping[str, object]]],
+    rng: random.Random,
+) -> List[Point]:
+    """Sample ``count`` random points plus any optional zoned additions."""
 
-
-def _bowyer_watson(points: Sequence[Point]) -> List[Triangle]:
-    """Compute the Delaunay triangulation for ``points``.
-
-    Returns a list of :class:`Triangle` objects containing indices into
-    ``points``.
-    """
-
-    if len(points) < 3:
-        raise ValueError("At least three points are required for triangulation")
-
-    xs, ys = zip(*points)
-    min_x, max_x = min(xs), max(xs)
-    min_y, max_y = min(ys), max(ys)
-    dx = max_x - min_x
-    dy = max_y - min_y
-    delta = max(dx, dy) * 10.0 or 1.0
-
-    # Create a super triangle that encloses all points.
-    mid_x = (min_x + max_x) / 2.0
-    mid_y = (min_y + max_y) / 2.0
-    super_pts = [
-        (mid_x - 2 * delta, mid_y - delta),
-        (mid_x, mid_y + 2 * delta),
-        (mid_x + 2 * delta, mid_y - delta),
+    points: List[Point] = [
+        (rng.uniform(0.0, width), rng.uniform(0.0, height)) for _ in range(count)
     ]
 
-    extended_points = list(points) + super_pts
-    super_indices = [len(points) + i for i in range(3)]
+    if not zones:
+        return points
 
-    triangles: List[Triangle] = [
-        _circumcircle(extended_points, super_indices[0], super_indices[1], super_indices[2])
-    ]
-
-    for idx, point in enumerate(points):
-        bad: List[Triangle] = []
-        for tri in triangles:
-            if _point_in_circumcircle(tri, point):
-                bad.append(tri)
-
-        polygon: Dict[Tuple[int, int], Tuple[int, int]] = {}
-        for tri in bad:
-            edges = [(tri.a, tri.b), (tri.b, tri.c), (tri.c, tri.a)]
-            for a, b in edges:
-                key = (min(a, b), max(a, b))
-                if key in polygon:
-                    del polygon[key]
-                else:
-                    polygon[key] = (a, b)
-
-        for tri in bad:
-            triangles.remove(tri)
-
-        for (a, b) in polygon.values():
-            new_tri = _circumcircle(extended_points, a, b, idx)
-            triangles.append(new_tri)
-
-    # Filter out triangles that share super triangle vertices.
-    valid: List[Triangle] = []
-    for tri in triangles:
-        if any(v in super_indices for v in (tri.a, tri.b, tri.c)):
+    for zone in zones:
+        bounds = zone.get("bounds")
+        if not bounds:
             continue
-        valid.append(tri)
+        x0, y0, x1, y1 = bounds
+        local_count = int(zone.get("point_count", 0))
+        if local_count <= 0:
+            continue
+        for _ in range(local_count):
+            points.append(
+                (
+                    rng.uniform(min(x0, x1), max(x0, x1)),
+                    rng.uniform(min(y0, y1), max(y0, y1)),
+                )
+            )
+    return points
 
-    return valid
 
+def _collect_edges(triangulation: Delaunay) -> Dict[Edge, float]:
+    """Extract the unique undirected edges with Euclidean weights."""
 
-def _extract_edges(triangles: Iterable[Triangle]) -> List[Edge]:
-    edges: Dict[Tuple[int, int], None] = {}
-    for tri in triangles:
-        for a, b in ((tri.a, tri.b), (tri.b, tri.c), (tri.c, tri.a)):
+    simplices = triangulation.simplices
+    pts = triangulation.points
+    edges: Dict[Edge, float] = {}
+    for simplex in simplices:
+        for i in range(3):
+            a = int(simplex[i])
+            b = int(simplex[(i + 1) % 3])
             if a == b:
                 continue
             edge = (a, b) if a < b else (b, a)
-            edges.setdefault(edge, None)
-    return list(edges.keys())
-
-
-def _edge_weight(
-    points: Sequence[Point],
-    edge: Edge,
-    zones: Optional[Sequence[Dict[str, float]]],
-) -> float:
-    (ax, ay), (bx, by) = points[edge[0]], points[edge[1]]
-    weight = hypot(ax - bx, ay - by)
-    if not zones:
-        return weight
-
-    mx = (ax + bx) / 2.0
-    my = (ay + by) / 2.0
-    for zone in zones:
-        bias = zone.get("weight_bias")
-        if bias is None:
-            continue
-        x0, y0, x1, y1 = zone["bounds"]
-        if x0 <= mx <= x1 and y0 <= my <= y1:
-            weight *= bias
-    return weight
-
-
-def _prim_mst(
-    points: Sequence[Point],
-    edges: Sequence[Edge],
-    zones,
-    rng: random.Random,
-) -> List[Edge]:
-    import heapq
-
-    start = rng.randrange(len(points))
-
-    visited = {start}
-    heap: List[Tuple[float, int, Edge]] = []
-    adjacency: Dict[int, List[int]] = {}
-    for u, v in edges:
-        adjacency.setdefault(u, []).append(v)
-        adjacency.setdefault(v, []).append(u)
-
-    counter = 0
-
-    def push_edges(vertex: int) -> None:
-        nonlocal counter
-        for nxt in adjacency.get(vertex, []):
-            if nxt in visited:
+            if edge in edges:
                 continue
-            edge = (vertex, nxt) if vertex < nxt else (nxt, vertex)
-            weight = _edge_weight(points, edge, zones)
-            counter += 1
-            heapq.heappush(heap, (weight, counter, edge))
-
-    push_edges(start)
-    mst: List[Edge] = []
-
-    while heap and len(visited) < len(points):
-        _, _, edge = heapq.heappop(heap)
-        u, v = edge
-        if u in visited and v in visited:
-            continue
-        nxt = v if u in visited else u
-        visited.add(nxt)
-        mst.append(edge)
-        push_edges(nxt)
-
-    return mst
+            ax, ay = pts[edge[0]]
+            bx, by = pts[edge[1]]
+            edges[edge] = hypot(ax - bx, ay - by)
+    return edges
 
 
-def _kruskal_mst(
-    points: Sequence[Point],
-    edges: Sequence[Edge],
-    zones,
-    rng: random.Random,
-) -> List[Edge]:
-    parent = list(range(len(points)))
-    rank = [0] * len(points)
+class _UnionFind:
+    def __init__(self, size: int) -> None:
+        self.parent = list(range(size))
+        self.rank = [0] * size
 
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
+    def find(self, x: int) -> int:
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]
+            x = self.parent[x]
         return x
 
-    def union(a: int, b: int) -> bool:
-        root_a = find(a)
-        root_b = find(b)
-        if root_a == root_b:
+    def union(self, a: int, b: int) -> bool:
+        ra = self.find(a)
+        rb = self.find(b)
+        if ra == rb:
             return False
-        if rank[root_a] < rank[root_b]:
-            parent[root_a] = root_b
-        elif rank[root_a] > rank[root_b]:
-            parent[root_b] = root_a
-        else:
-            parent[root_b] = root_a
-            rank[root_a] += 1
+        if self.rank[ra] < self.rank[rb]:
+            ra, rb = rb, ra
+        self.parent[rb] = ra
+        if self.rank[ra] == self.rank[rb]:
+            self.rank[ra] += 1
         return True
 
-    weighted_edges = [(_edge_weight(points, e, zones), rng.random(), e) for e in edges]
-    weighted_edges.sort(key=lambda item: (item[0], item[1]))
 
-    mst: List[Edge] = []
-    for _, _, edge in weighted_edges:
-        if union(edge[0], edge[1]):
-            mst.append(edge)
-        if len(mst) == len(points) - 1:
-            break
-    return mst
+def _kruskal(node_count: int, edges: Dict[Edge, float]) -> List[Edge]:
+    sorted_edges = sorted(edges.items(), key=lambda item: item[1])
+    uf = _UnionFind(node_count)
+    tree: List[Edge] = []
+    for (edge, weight) in sorted_edges:
+        if uf.union(edge[0], edge[1]):
+            tree.append(edge)
+            if len(tree) == node_count - 1:
+                break
+    return tree
 
 
-def _generate_points(
-    width: float,
-    height: float,
-    base_point_count: int,
-    zones: Optional[Sequence[Dict[str, float]]],
-    rng: random.Random,
-) -> Tuple[List[Point], List[Dict[str, float]]]:
-    if base_point_count < 3:
-        raise ValueError("base_point_count must be at least 3")
+def _prim(
+    node_count: int,
+    adjacency: Dict[int, List[Tuple[float, int, int]]],
+) -> List[Edge]:
+    visited = [False] * node_count
+    tree: List[Edge] = []
+    pq: List[Tuple[float, int, int]] = []
+    visited[0] = True
+    for cost, _, v in adjacency[0]:
+        heappush(pq, (cost, 0, v))
+    while pq and len(tree) < node_count - 1:
+        cost, u, v = heappop(pq)
+        if visited[v]:
+            continue
+        visited[v] = True
+        tree.append((min(u, v), max(u, v)))
+        for next_cost, _, w in adjacency[v]:
+            if not visited[w]:
+                heappush(pq, (next_cost, v, w))
+    return tree
 
-    total_area = width * height
-    points: List[Point] = []
 
-    for _ in range(base_point_count):
-        points.append((rng.uniform(0, width), rng.uniform(0, height)))
+def _build_adjacency(
+    edges: Dict[Edge, float], node_count: int
+) -> Dict[int, List[Tuple[float, int, int]]]:
+    adjacency: Dict[int, List[Tuple[float, int, int]]] = {i: [] for i in range(node_count)}
+    for (u, v), weight in edges.items():
+        adjacency[u].append((weight, u, v))
+        adjacency[v].append((weight, v, u))
+    return adjacency
 
-    normalized_zones: List[Dict[str, float]] = []
-    if zones:
-        for zone in zones:
-            x0, y0, x1, y1 = zone["bounds"]
-            density_multiplier = max(zone.get("density_multiplier", 1.0), 0.0)
-            density_points = int(zone.get("points", 0))
-            if density_multiplier > 1.0:
-                area = max((x1 - x0) * (y1 - y0), 0.0)
-                expected = base_point_count * (area / total_area) * (density_multiplier - 1.0)
-                density_points += int(expected)
 
-            for _ in range(density_points):
-                points.append((rng.uniform(x0, x1), rng.uniform(y0, y1)))
+def _apply_zone_bias(
+    edges: Dict[Edge, float],
+    points: np.ndarray,
+    zones: Optional[Sequence[MutableMapping[str, object]]],
+) -> Dict[Edge, float]:
+    if not zones:
+        return edges
 
-            normalized_zones.append(
-                {
-                    "bounds": (x0, y0, x1, y1),
-                    "weight_bias": zone.get("weight_bias"),
-                }
-            )
-
-    # Ensure the bounding box corners are part of the set to stabilise the mesh.
-    points.extend([(0.0, 0.0), (width, 0.0), (0.0, height), (width, height)])
-
-    # Deduplicate points by rounding to a small grid, then jitter slightly.
-    unique = {}
-    for x, y in points:
-        key = (round(x, 4), round(y, 4))
-        if key not in unique:
-            unique[key] = (x, y)
-
-    final_points = list(unique.values())
-    return final_points, normalized_zones
+    adjusted: Dict[Edge, float] = dict(edges)
+    for zone in zones:
+        bounds = zone.get("bounds")
+        if not bounds:
+            continue
+        bias = float(zone.get("weight_bias", 1.0))
+        if bias <= 0:
+            continue
+        x0, y0, x1, y1 = bounds
+        min_x, max_x = sorted((x0, x1))
+        min_y, max_y = sorted((y0, y1))
+        for edge, weight in edges.items():
+            ax, ay = points[edge[0]]
+            bx, by = points[edge[1]]
+            mx = (ax + bx) / 2.0
+            my = (ay + by) / 2.0
+            if min_x <= mx <= max_x and min_y <= my <= max_y:
+                adjusted[edge] = weight * bias
+    return adjusted
 
 
 def _jitter_segment(
     start: Point,
     end: Point,
     rng: random.Random,
-    max_jitter: float,
-    max_intermediate: int,
-) -> Dict[str, object]:
-    sx, sy = start
-    ex, ey = end
-    length = hypot(ex - sx, ey - sy)
-    jitter_cap = min(max_jitter, length * 0.35)
-
-    count = rng.randint(0, max_intermediate)
-    intermediates = []
-    if count and jitter_cap > 0:
-        for _ in range(count):
-            t = rng.uniform(0.2, 0.8)
-            px = sx + (ex - sx) * t
-            py = sy + (ey - sy) * t
-            # Offset in a perpendicular direction.
-            dx = ey - sy
-            dy = -(ex - sx)
-            norm = hypot(dx, dy) or 1.0
-            scale = rng.uniform(-jitter_cap, jitter_cap) / norm
-            px += dx * scale
-            py += dy * scale
-            intermediates.append({"x": px, "y": py})
-
-    return {
-        "start": {"x": sx, "y": sy},
-        "end": {"x": ex, "y": ey},
-        "points_intermediate": intermediates,
-    }
+    magnitude: float,
+    extra_points: int,
+) -> Tuple[Point, ...]:
+    if magnitude <= 0 or extra_points <= 0:
+        return ()
+    intermediates: List[Point] = []
+    for idx in range(1, extra_points + 1):
+        t = idx / (extra_points + 1)
+        mx = start[0] * (1 - t) + end[0] * t
+        my = start[1] * (1 - t) + end[1] * t
+        offset_x = rng.uniform(-magnitude, magnitude)
+        offset_y = rng.uniform(-magnitude, magnitude)
+        intermediates.append((mx + offset_x, my + offset_y))
+    return tuple(intermediates)
 
 
 def generate_organic_maze(
-    width: int,
-    height: int,
-    base_point_count: int = 150,
+    width: float,
+    height: float,
+    num_points: int,
     *,
-    algorithm: str = "prim",
-    zones: Optional[Sequence[Dict[str, float]]] = None,
-    jitter: float = 6.0,
-    max_intermediate_points: int = 2,
+    algorithm: str = "kruskal",
+    zones: Optional[Sequence[MutableMapping[str, object]]] = None,
+    jitter_magnitude: float = 3.0,
+    jitter_points: int = 1,
     seed: Optional[int] = None,
 ) -> Dict[str, object]:
-    """Generate maze walls over a random Delaunay graph.
+    """Generate an organic maze layout over a Delaunay triangulation.
 
     Parameters
     ----------
     width, height:
-        Size of the maze canvas.
-    base_point_count:
-        Number of random seed points to sample across the full area.
+        Dimensions of the canvas in which points are sampled.
+    num_points:
+        Number of base points to generate uniformly across the canvas.
     algorithm:
-        Either ``"prim"`` or ``"kruskal"`` selecting the maze carving
-        algorithm.  Prim's algorithm is the default.
+        Either ``"kruskal"`` or ``"prim"`` for the spanning-tree routine.
     zones:
-        Optional iterable of dictionaries describing rectangular sub-areas.
-        Each dictionary must provide ``bounds=(x0, y0, x1, y1)`` and may
-        include ``density_multiplier`` (>= 0), ``points`` (int) and
-        ``weight_bias`` (float).  The bias scales edge weights for edges whose
-        midpoints fall inside the zone, influencing whether they become paths
-        or remain walls.
-    jitter:
-        Maximum perpendicular displacement applied to the wall segments.
-    max_intermediate_points:
-        Upper bound on how many intermediate jitter points a wall may include.
+        Optional sequence of mappings.  Each mapping may contain ``"bounds"``
+        as ``(x0, y0, x1, y1)``, ``"point_count"`` for extra samples and
+        ``"weight_bias"`` to scale edge weights that pass through the zone.
+    jitter_magnitude:
+        Maximum random offset applied to intermediate points of each wall.
+    jitter_points:
+        Number of random intermediate points added per wall segment.
     seed:
-        Optional random seed for reproducibility.
+        Random seed for reproducible mazes.
     """
 
-    rng = random.Random(seed)
-    points, normalized_zones = _generate_points(width, height, base_point_count, zones, rng)
+    if num_points < 3:
+        raise ValueError("num_points must be at least 3 to form a triangulation")
 
-    triangles = _bowyer_watson(points)
-    edges = _extract_edges(triangles)
+    rng = random.Random(seed)
+    base_points = _random_points(width, height, num_points, zones, rng)
+    points = np.array(base_points)
+
+    triangulation = Delaunay(points)
+    raw_edges = _collect_edges(triangulation)
+    biased_edges = _apply_zone_bias(raw_edges, points, zones)
+    adjacency = _build_adjacency(biased_edges, len(points))
 
     if algorithm.lower() == "prim":
-        corridors = _prim_mst(points, edges, normalized_zones, rng)
+        mst_edges = _prim(len(points), adjacency)
     elif algorithm.lower() == "kruskal":
-        corridors = _kruskal_mst(points, edges, normalized_zones, rng)
+        mst_edges = _kruskal(len(points), biased_edges)
     else:
         raise ValueError("algorithm must be either 'prim' or 'kruskal'")
 
-    corridor_set = {edge if edge[0] < edge[1] else (edge[1], edge[0]) for edge in corridors}
+    mst_set = {edge for edge in mst_edges}
+
     walls: List[Dict[str, object]] = []
-
-    rng.shuffle(edges)
-    for edge in edges:
-        ordered = edge if edge[0] < edge[1] else (edge[1], edge[0])
-        if ordered in corridor_set:
+    for edge, weight in raw_edges.items():
+        if edge in mst_set:
             continue
-        wall = _jitter_segment(points[ordered[0]], points[ordered[1]], rng, jitter, max_intermediate_points)
-        walls.append(wall)
-
-    # Add an irregular bounding rectangle so the maze stays enclosed.
-    corners = [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
-    for idx in range(4):
-        start = corners[idx]
-        end = corners[(idx + 1) % 4]
-        wall = _jitter_segment(start, end, rng, jitter * 0.5, 1)
-        walls.append(wall)
+        start = tuple(points[edge[0]])
+        end = tuple(points[edge[1]])
+        intermediates = _jitter_segment(start, end, rng, jitter_magnitude, jitter_points)
+        wall = Wall(start=start, end=end, intermediates=intermediates)
+        walls.append(wall.as_mapping())
 
     return {"width": width, "height": height, "walls": walls}
 
 
 if __name__ == "__main__":
-    import json
-
     layout = generate_organic_maze(
-        800,
-        600,
-        base_point_count=180,
+        width=800,
+        height=600,
+        num_points=200,
+        algorithm="kruskal",
         zones=[
             {
-                "bounds": (100, 100, 350, 350),
-                "density_multiplier": 1.6,
-                "weight_bias": 0.75,
-            },
-            {
-                "bounds": (450, 200, 750, 500),
-                "points": 60,
-                "weight_bias": 1.25,
-            },
+                "bounds": (100, 100, 300, 300),
+                "point_count": 80,
+                "weight_bias": 0.8,
+            }
         ],
-        seed=42,
+        jitter_magnitude=5.0,
+        jitter_points=2,
+        seed=1234,
     )
+    import json
+
     print(json.dumps(layout, indent=2))
