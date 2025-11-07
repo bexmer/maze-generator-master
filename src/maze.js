@@ -78,6 +78,8 @@ function Maze(args) {
   const clampedVariance = Math.min(100, Math.max(0, isNaN(parsedVariance) ? 0 : parsedVariance));
   this.wallShapeVariance = clampedVariance / 100;
   this.wallShapeCache = new Map();
+  this.organicEdgeCache = new Map();
+  this.organicNodeCache = new Map();
 }
 
 Maze.prototype.generate = function () {
@@ -806,9 +808,6 @@ Maze.prototype.drawWallCell = function (ctx, rect, shape) {
   }
 
   ctx.save();
-  ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-  ctx.globalCompositeOperation = "destination-in";
-  ctx.fillStyle = "#000";
   ctx.beginPath();
 
   if (shape.type === "curved") {
@@ -822,6 +821,220 @@ Maze.prototype.drawWallCell = function (ctx, rect, shape) {
   ctx.closePath();
   ctx.fill();
   ctx.restore();
+};
+
+Maze.prototype.drawOrganicMaze = function (ctx, layout) {
+  const rows = this.matrix.length;
+  if (!rows) {
+    return;
+  }
+
+  const columns = this.matrix[0].length;
+  const columnCenters = new Array(columns);
+  const rowCenters = new Array(rows);
+
+  if (!(this.organicEdgeCache instanceof Map)) {
+    this.organicEdgeCache = new Map();
+  }
+
+  if (!(this.organicNodeCache instanceof Map)) {
+    this.organicNodeCache = new Map();
+  }
+
+  for (let i = 0; i < columns; i++) {
+    columnCenters[i] = layout.columnStarts[i] + layout.columnWidths[i] / 2;
+  }
+
+  for (let j = 0; j < rows; j++) {
+    rowCenters[j] = layout.rowStarts[j] + layout.rowHeights[j] / 2;
+  }
+
+  const variance = Math.max(0, Math.min(1, this.wallShapeVariance || 0));
+  const baseWidth = Math.max(1, this.passageSize);
+  const minWidth = Math.max(1, baseWidth * (1 - 0.45 * variance));
+  const maxWidth = Math.max(minWidth, baseWidth * (1 + 0.65 * variance));
+
+  const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+  const getNodeKey = (x, y) => `${x},${y}`;
+  const getEdgeKey = (x1, y1, x2, y2) => {
+    if (x1 > x2 || (x1 === x2 && y1 > y2)) {
+      const swapX = x1;
+      const swapY = y1;
+      x1 = x2;
+      y1 = y2;
+      x2 = swapX;
+      y2 = swapY;
+    }
+    return `${x1},${y1}|${x2},${y2}`;
+  };
+
+  const getBoundaryKey = (x, y, axis, index, forward) =>
+    `${x},${y}|${axis}${index}:${forward ? "1" : "-1"}`;
+
+  const getNodeRadius = (x, y) => {
+    const key = getNodeKey(x, y);
+    if (!this.organicNodeCache.has(key)) {
+      const radius = randomInRange(minWidth, maxWidth) / 2;
+      this.organicNodeCache.set(key, radius);
+    }
+    return this.organicNodeCache.get(key);
+  };
+
+  const getEdgeShape = (x1, y1, x2, y2) => {
+    const key = getEdgeKey(x1, y1, x2, y2);
+    if (!this.organicEdgeCache.has(key)) {
+      const width = randomInRange(minWidth, maxWidth);
+      const startX = columnCenters[x1];
+      const startY = rowCenters[y1];
+      const endX = columnCenters[x2];
+      const endY = rowCenters[y2];
+      const dx = endX - startX;
+      const dy = endY - startY;
+      const length = Math.hypot(dx, dy) || 1;
+      const normalX = -dy / length;
+      const normalY = dx / length;
+      const wobble = variance > 0 ? (Math.random() * 2 - 1) * width * variance * 0.8 : 0;
+      const controlX = (startX + endX) / 2 + normalX * wobble;
+      const controlY = (startY + endY) / 2 + normalY * wobble;
+      this.organicEdgeCache.set(key, {
+        width,
+        controlX,
+        controlY,
+        endX,
+        endY,
+      });
+    }
+
+    return this.organicEdgeCache.get(key);
+  };
+
+  const getBoundaryShape = (x, y, boundaryIndex, horizontal, forward) => {
+    const axisKey = horizontal ? "h" : "v";
+    const key = getBoundaryKey(x, y, axisKey, boundaryIndex, forward);
+    if (!this.organicEdgeCache.has(key)) {
+      const width = randomInRange(minWidth, maxWidth);
+      const startX = columnCenters[x];
+      const startY = rowCenters[y];
+      let endX = startX;
+      let endY = startY;
+      let controlX = startX;
+      let controlY = startY;
+
+      if (horizontal) {
+        const boundaryStart = layout.columnStarts[boundaryIndex];
+        const boundaryWidth = layout.columnWidths[boundaryIndex];
+        endX = forward ? boundaryStart + boundaryWidth : boundaryStart;
+        endY = startY;
+        const wobble = variance > 0 ? (Math.random() * 2 - 1) * width * variance * 0.75 : 0;
+        controlX = (startX + endX) / 2;
+        controlY = startY + wobble;
+      } else {
+        const boundaryStart = layout.rowStarts[boundaryIndex];
+        const boundaryHeight = layout.rowHeights[boundaryIndex];
+        endX = startX;
+        endY = forward ? boundaryStart + boundaryHeight : boundaryStart;
+        const wobble = variance > 0 ? (Math.random() * 2 - 1) * width * variance * 0.75 : 0;
+        controlX = startX + wobble;
+        controlY = (startY + endY) / 2;
+      }
+
+      this.organicEdgeCache.set(key, {
+        width,
+        controlX,
+        controlY,
+        endX,
+        endY,
+      });
+    }
+
+    return this.organicEdgeCache.get(key);
+  };
+
+  const carveEdge = (x1, y1, x2, y2) => {
+    const shape = getEdgeShape(x1, y1, x2, y2);
+    ctx.beginPath();
+    ctx.lineWidth = shape.width;
+    ctx.moveTo(columnCenters[x1], rowCenters[y1]);
+    ctx.quadraticCurveTo(shape.controlX, shape.controlY, shape.endX, shape.endY);
+    ctx.stroke();
+  };
+
+  const carveBoundaryEdge = (x, y, boundaryIndex, horizontal, forward) => {
+    const shape = getBoundaryShape(x, y, boundaryIndex, horizontal, forward);
+    ctx.beginPath();
+    ctx.lineWidth = shape.width;
+    ctx.moveTo(columnCenters[x], rowCenters[y]);
+    ctx.quadraticCurveTo(shape.controlX, shape.controlY, shape.endX, shape.endY);
+    ctx.stroke();
+  };
+
+  const carveNode = (x, y) => {
+    const radius = getNodeRadius(x, y);
+    if (radius <= 0) {
+      return;
+    }
+    ctx.beginPath();
+    ctx.arc(columnCenters[x], rowCenters[y], radius, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  ctx.save();
+  ctx.strokeStyle = this.color;
+  ctx.fillStyle = this.color;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (let y = 1; y < rows; y += 2) {
+    for (let x = 1; x < columns; x += 2) {
+      if (this.matrix[y].charAt(x) !== "0") {
+        continue;
+      }
+
+      carveNode(x, y);
+
+      if (x + 2 < columns && this.matrix[y].charAt(x + 1) === "0" && this.matrix[y].charAt(x + 2) === "0") {
+        carveEdge(x, y, x + 2, y);
+      } else if (x + 1 < columns && this.matrix[y].charAt(x + 1) === "0") {
+        carveBoundaryEdge(x, y, x + 1, true, true);
+      }
+
+      if (y + 2 < rows && this.matrix[y + 1].charAt(x) === "0" && this.matrix[y + 2].charAt(x) === "0") {
+        carveEdge(x, y, x, y + 2);
+      } else if (y + 1 < rows && this.matrix[y + 1].charAt(x) === "0") {
+        carveBoundaryEdge(x, y, y + 1, false, true);
+      }
+
+      if (
+        this.matrix[y].charAt(x - 1) === "0" &&
+        (x - 2 < 0 || this.matrix[y].charAt(x - 2) !== "0")
+      ) {
+        carveBoundaryEdge(x, y, x - 1, true, false);
+      }
+
+      if (
+        this.matrix[y - 1] &&
+        this.matrix[y - 1].charAt(x) === "0" &&
+        (y - 2 < 0 || this.matrix[y - 2].charAt(x) !== "0")
+      ) {
+        carveBoundaryEdge(x, y, y - 1, false, false);
+      }
+    }
+  }
+
+  ctx.restore();
+
+  if (this.hideOuterBorder) {
+    ctx.save();
+    ctx.fillStyle = this.backgroundColor;
+    const lastRow = rows - 1;
+    const lastColumn = columns - 1;
+    ctx.fillRect(0, 0, layout.canvasWidth, layout.rowHeights[0]);
+    ctx.fillRect(0, layout.rowStarts[lastRow], layout.canvasWidth, layout.rowHeights[lastRow]);
+    ctx.fillRect(0, 0, layout.columnWidths[0], layout.canvasHeight);
+    ctx.fillRect(layout.columnStarts[lastColumn], 0, layout.columnWidths[lastColumn], layout.canvasHeight);
+    ctx.restore();
+  }
 };
 
 Maze.prototype.traceCurvedMaskPath = function (ctx, rect, shape) {
@@ -888,6 +1101,11 @@ Maze.prototype.draw = function () {
   // Set maze collor
   ctx.fillStyle = this.color;
   const organicWalls = this.usesOrganicWalls();
+
+  if (organicWalls) {
+    this.drawOrganicMaze(ctx, layout);
+    return;
+  }
 
   const row_count = this.matrix.length;
   const gateEntry = getEntryNode(this.entryNodes, "start", true);
