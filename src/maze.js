@@ -704,7 +704,7 @@ Maze.prototype.usesOrganicWalls = function () {
 };
 
 Maze.prototype.getOrganicAnglePalette = function () {
-  return [0, 15, 30, 45, 60, 75];
+  return [0, 30, 45, 60, 90, 120];
 };
 
 Maze.prototype.quantizeOrganicAngle = function (angle) {
@@ -721,8 +721,14 @@ Maze.prototype.quantizeOrganicAngle = function (angle) {
       closest = candidate;
     }
   }
-  const quantized = (closest * Math.PI) / 180;
-  return sign * quantized;
+  let quantized = (closest * Math.PI) / 180;
+  if (Math.abs(Math.abs(quantized) - Math.PI / 2) < 1e-3) {
+    const adjust = (Math.PI / 180) * 1.5;
+    quantized = sign * (Math.PI / 2 - adjust);
+  } else {
+    quantized *= sign;
+  }
+  return quantized;
 };
 
 Maze.prototype.generateOrganicPolyline = function (
@@ -737,72 +743,76 @@ Maze.prototype.generateOrganicPolyline = function (
   const dy = endY - startY;
   const axisLength = Math.hypot(dx, dy);
   if (axisLength === 0) {
-    return [{ x: startX, y: startY }];
+    return [{ x: startX, y: startY }, { x: endX, y: endY }];
   }
 
   const axisDirX = dx / axisLength;
   const axisDirY = dy / axisLength;
   const perpDirX = -axisDirY;
   const perpDirY = axisDirX;
-  const orientation = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
-  const maxDetour = Math.max(1, options && options.maxDetour ? options.maxDetour : axisLength * 0.25);
+  const maxDetourBase = options && options.maxDetour ? options.maxDetour : axisLength * 0.25;
+  const maxDetour = Math.max(1, Math.min(axisLength * 0.45, maxDetourBase));
   const clampedVariance = Math.max(0, Math.min(1, variance || 0));
-  const interiorSlots = Math.max(0, Math.round(clampedVariance * 4 + Math.random() * clampedVariance * 3));
-  const minSpacing = 1 / Math.max(2, interiorSlots + 2);
-
-  const randomInRange = (min, max) => Math.random() * (max - min) + min;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const randomInRange = (min, max) => Math.random() * (max - min) + min;
 
+  let interiorSlots = Math.round(clampedVariance * 6);
+  if (clampedVariance > 0 && interiorSlots === 0) {
+    interiorSlots = 1;
+  }
+  interiorSlots = Math.min(6, Math.max(0, interiorSlots));
+
+  if (interiorSlots === 0) {
+    return [
+      { x: startX, y: startY },
+      { x: endX, y: endY },
+    ];
+  }
+
+  const baseSpacing = 1 / (interiorSlots + 1);
+  const minSpacing = Math.max(0.12, baseSpacing * 0.6);
   const params = [{ pos: 0, offset: 0 }];
-  let lastPos = 0;
-  let lastOffset = 0;
+  const levels = [-1, -2 / 3, -1 / 3, 0, 1 / 3, 2 / 3, 1].map((ratio) => ratio * maxDetour);
+
+  let previousPos = 0;
+  let previousOffset = 0;
 
   for (let i = 0; i < interiorSlots; i++) {
-    const remaining = 1 - lastPos - minSpacing * (interiorSlots - i + 1);
-    const span = remaining > 0 ? remaining : 0;
-    const advance = minSpacing + (span > 0 ? Math.random() * span : 0);
-    const nextPos = clamp(lastPos + advance, lastPos + minSpacing, 1 - minSpacing);
-
-    if (clampedVariance > 0.2 && Math.random() < 0.35) {
-      const perpendicular = clamp(
-        lastOffset + randomInRange(-maxDetour, maxDetour),
-        -maxDetour,
-        maxDetour
-      );
-      if (Math.abs(perpendicular - lastOffset) > 0.1) {
-        params.push({ pos: lastPos, offset: perpendicular });
-        lastOffset = perpendicular;
-      }
+    const remaining = interiorSlots - i - 1;
+    const minRemaining = minSpacing * (remaining + 1);
+    const maxPos = clamp(1 - minRemaining, previousPos + minSpacing, 1 - minSpacing);
+    if (maxPos - (previousPos + minSpacing) <= 1e-3) {
+      break;
     }
 
-    let offset = clamp(randomInRange(-maxDetour, maxDetour), -maxDetour, maxDetour);
-    if (Math.abs(offset - lastOffset) < maxDetour * 0.15) {
-      offset = clamp(
-        offset + (offset >= lastOffset ? 1 : -1) * maxDetour * 0.2,
-        -maxDetour,
-        maxDetour
-      );
+    const jitter = randomInRange(-baseSpacing * 0.35, baseSpacing * 0.35);
+    const targetPos = baseSpacing * (i + 1) + jitter;
+    const pos = clamp(targetPos, previousPos + minSpacing, maxPos);
+
+    let levelIndex = Math.floor(Math.random() * levels.length);
+    if (Math.abs(levels[levelIndex] - previousOffset) < maxDetour * 0.2) {
+      levelIndex = (levelIndex + Math.floor(levels.length / 2)) % levels.length;
     }
 
-    params.push({ pos: nextPos, offset });
-    lastPos = nextPos;
-    lastOffset = offset;
+    if (Math.abs(previousOffset) > maxDetour * 0.75) {
+      levelIndex = previousOffset > 0 ? 1 : levels.length - 2;
+    }
+
+    let offset = levels[levelIndex];
+    offset = clamp(offset, -maxDetour, maxDetour);
+    params.push({ pos, offset });
+    previousPos = pos;
+    previousOffset = offset;
   }
 
-  if (clampedVariance > 0.25 && Math.random() < 0.4) {
-    const perpendicular = clamp(
-      lastOffset + randomInRange(-maxDetour, maxDetour),
-      -maxDetour,
-      maxDetour
-    );
-    if (Math.abs(perpendicular - lastOffset) > 0.1) {
-      params.push({ pos: lastPos, offset: perpendicular });
-      lastOffset = perpendicular;
-    }
+  if (Math.abs(previousOffset) > maxDetour * 0.45) {
+    const settlePos = clamp(1 - minSpacing * 0.75, previousPos + minSpacing * 0.5, 1 - minSpacing * 0.5);
+    params.push({ pos: settlePos, offset: previousOffset * 0.4 });
+    previousOffset *= 0.4;
   }
 
-  params.push({ pos: 1, offset: lastOffset });
-  if (Math.abs(lastOffset) > 0.05) {
+  params.push({ pos: 1, offset: previousOffset });
+  if (Math.abs(previousOffset) > 0.05) {
     params.push({ pos: 1, offset: 0 });
   }
 
@@ -830,7 +840,7 @@ Maze.prototype.generateOrganicPolyline = function (
     const offset = clamp(param.offset, -maxDetour, maxDetour);
     const x = startX + axisDirX * axisLength * axisProgress + perpDirX * offset;
     const y = startY + axisDirY * axisLength * axisProgress + perpDirY * offset;
-    if (i === 0 || Math.hypot(points[points.length - 1].x - x, points[points.length - 1].y - y) > 0.5) {
+    if (points.length === 0 || Math.hypot(points[points.length - 1].x - x, points[points.length - 1].y - y) > 0.5) {
       points.push({ x, y });
     }
   }
