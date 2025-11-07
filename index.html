@@ -121,10 +121,11 @@
 		<h1>Maze Generator</h1>
 		<p>
 			Create, solve and download random maze puzzles in any size or color with this online tool. Enter the values for your maze design below and click the "Generate Maze" button.</p>
-		<p>
-			The <a href="https://en.wikipedia.org/wiki/Maze_generation_algorithm#Recursive_backtracker">recursive backtracking algorithm</a> is used to create the mazes.
-			For more information check out the <a href="https://github.com/keesiemeijer/maze-generator">Github Repository</a>.
-		</p>
+                <p>
+                        The generator now supports multiple algorithms. By default it uses the classic <a href="https://en.wikipedia.org/wiki/Maze_generation_algorithm#Randomized_Prim's_algorithm">randomized Prim's method</a>,
+                        and you can switch back to <a href="https://en.wikipedia.org/wiki/Maze_generation_algorithm#Recursive_backtracker">recursive backtracking</a> if you prefer.
+                        For more information check out the <a href="https://github.com/keesiemeijer/maze-generator">Github Repository</a>.
+                </p>
 		<hr>
 		<div class="controls">
                         <p>
@@ -146,6 +147,13 @@
                                 <label for="passage-size">Passage width:</label>
                                 <input id="passage-size" type="range" name="passage-size" value="10" min="1" max="60">
                                 <span id="passage-size-value" class="value-display">10 px</span>
+                        </p>
+                        <p>
+                                <label for="algorithm">Maze algorithm:</label>
+                                <select id="algorithm" name="algorithm">
+                                        <option value="prim" selected="selected">randomized Prim</option>
+                                        <option value="backtracker">recursive backtracker</option>
+                                </select>
                         </p>
                         <p>
                                 <label for="wall-style">Wall style:</label>

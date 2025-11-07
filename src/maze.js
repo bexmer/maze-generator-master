@@ -78,6 +78,13 @@ function Maze(args) {
   const clampedVariance = Math.min(100, Math.max(0, isNaN(parsedVariance) ? 0 : parsedVariance));
   this.wallShapeVariance = clampedVariance / 100;
   this.wallShapeCache = new Map();
+  const allowedAlgorithms = new Set(["prim", "backtracker"]);
+  const requestedAlgorithm = typeof settings["algorithm"] === "string"
+    ? settings["algorithm"].toLowerCase()
+    : "prim";
+  this.algorithm = allowedAlgorithms.has(requestedAlgorithm)
+    ? requestedAlgorithm
+    : "prim";
 }
 
 Maze.prototype.generate = function () {
@@ -248,7 +255,7 @@ Maze.prototype.generateNodes = function () {
   return nodes;
 };
 
-Maze.prototype.parseMaze = function (nodes) {
+Maze.prototype.carveMazeWithBacktracker = function (nodes) {
   const mazeSize = nodes.length;
   const positionIndex = { n: 1, s: 2, w: 3, e: 4 };
   const oppositeIndex = { n: 2, s: 1, w: 4, e: 3 };
@@ -325,6 +332,76 @@ Maze.prototype.parseMaze = function (nodes) {
   }
 
   return nodes;
+};
+
+Maze.prototype.carveMazeWithPrim = function (nodes) {
+  const mazeSize = nodes.length;
+  if (!mazeSize) {
+    return nodes;
+  }
+
+  const positionIndex = { n: 1, s: 2, w: 3, e: 4 };
+  const oppositeDirection = { n: "s", s: "n", w: "e", e: "w" };
+
+  const visited = new Set();
+  const frontier = [];
+
+  const markVisited = (index) => {
+    visited.add(index);
+    nodes[index] = replaceAt(nodes[index], 0, 1);
+  };
+
+  const addFrontierEdges = (index) => {
+    const neighbours = this.getNeighbours(index);
+    Object.keys(neighbours).forEach((direction) => {
+      const neighbourIndex = neighbours[direction];
+      if (neighbourIndex === -1 || visited.has(neighbourIndex)) {
+        return;
+      }
+      frontier.push({ cell: neighbourIndex, parent: index, direction });
+    });
+  };
+
+  const start = parseInt(Math.floor(Math.random() * mazeSize), 10);
+  markVisited(start);
+  addFrontierEdges(start);
+
+  while (frontier.length) {
+    const pickIndex = Math.floor(Math.random() * frontier.length);
+    const edge = frontier.splice(pickIndex, 1)[0];
+    if (!edge) {
+      continue;
+    }
+
+    const { cell, parent, direction } = edge;
+    if (visited.has(cell)) {
+      continue;
+    }
+
+    const opposite = oppositeDirection[direction];
+    if (!opposite) {
+      continue;
+    }
+
+    nodes[parent] = replaceAt(nodes[parent], positionIndex[direction], 0);
+    nodes[cell] = replaceAt(nodes[cell], positionIndex[opposite], 0);
+    markVisited(cell);
+    addFrontierEdges(cell);
+  }
+
+  return nodes;
+};
+
+Maze.prototype.parseMaze = function (nodes) {
+  if (!Array.isArray(nodes) || !nodes.length) {
+    return nodes;
+  }
+
+  if (this.algorithm === "prim") {
+    return this.carveMazeWithPrim(nodes);
+  }
+
+  return this.carveMazeWithBacktracker(nodes);
 };
 
 Maze.prototype.getMatrix = function (nodes) {
@@ -702,7 +779,7 @@ Maze.prototype.usesStylizedLineWalls = function () {
     return false;
   }
 
-  return this.wallStyle === "angled" || this.wallStyle === "organic";
+  return this.wallStyle === "organic";
 };
 
 
@@ -1128,23 +1205,31 @@ Maze.prototype.createAngledWallShape = function (rect, variance) {
     return { type: "grid" };
   }
 
-  const spanX = Math.max(1, width * 0.45 * variance);
-  const spanY = Math.max(1, height * 0.45 * variance);
-  const jitter = (span) => (Math.random() * 2 - 1) * span;
-  const clampValue = (value, min, max) => Math.min(max, Math.max(min, value));
+  const horizontalLimit = Math.min(width / 2, width * 0.5 * variance);
+  const verticalLimit = Math.min(height / 2, height * 0.5 * variance);
 
-  const marginX = spanX;
-  const marginY = spanY;
+  if (horizontalLimit <= 0 && verticalLimit <= 0) {
+    return { type: "grid" };
+  }
+
+  const offset = (limit) => (limit > 0 ? Math.random() * limit : 0);
+
+  const topLeft = { x: offset(horizontalLimit), y: offset(verticalLimit) };
+  const topRight = { x: offset(horizontalLimit), y: offset(verticalLimit) };
+  const bottomRight = { x: offset(horizontalLimit), y: offset(verticalLimit) };
+  const bottomLeft = { x: offset(horizontalLimit), y: offset(verticalLimit) };
+
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
   const points = [
-    { x: clampValue(jitter(marginX), -marginX, marginX), y: clampValue(jitter(marginY), -marginY, marginY) },
-    { x: clampValue(width * 0.35 + jitter(spanX * 0.5), -marginX, width + marginX), y: clampValue(jitter(marginY), -marginY, marginY) },
-    { x: clampValue(width + jitter(marginX), -marginX, width + marginX), y: clampValue(jitter(marginY), -marginY, marginY) },
-    { x: clampValue(width + jitter(marginX), -marginX, width + marginX), y: clampValue(height * 0.35 + jitter(spanY * 0.5), -marginY, height + marginY) },
-    { x: clampValue(width + jitter(marginX * 0.7), -marginX, width + marginX), y: clampValue(height + jitter(marginY), -marginY, height + marginY) },
-    { x: clampValue(width * 0.65 + jitter(spanX * 0.5), -marginX, width + marginX), y: clampValue(height + jitter(marginY), -marginY, height + marginY) },
-    { x: clampValue(jitter(marginX), -marginX, marginX), y: clampValue(height + jitter(marginY), -marginY, height + marginY) },
-    { x: clampValue(jitter(marginX), -marginX, marginX), y: clampValue(height * 0.65 + jitter(spanY * 0.5), -marginY, height + marginY) },
+    { x: 0, y: clamp(topLeft.y, 0, height) },
+    { x: clamp(topLeft.x, 0, width), y: 0 },
+    { x: width - clamp(topRight.x, 0, width), y: 0 },
+    { x: width, y: clamp(topRight.y, 0, height) },
+    { x: width, y: height - clamp(bottomRight.y, 0, height) },
+    { x: width - clamp(bottomRight.x, 0, width), y: height },
+    { x: clamp(bottomLeft.x, 0, width), y: height },
+    { x: 0, y: height - clamp(bottomLeft.y, 0, height) },
   ];
 
   return { type: "angled", points };

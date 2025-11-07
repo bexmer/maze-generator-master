@@ -9,6 +9,7 @@ const wallRangeMaxInput = document.getElementById("wall-size-max");
 const passageSizeInput = document.getElementById("passage-size");
 const passageSizeValue = document.getElementById("passage-size-value");
 const wallStyleInput = document.getElementById("wall-style");
+const algorithmInput = document.getElementById("algorithm");
 const wallVarianceInput = document.getElementById("wall-variance");
 const wallVarianceValue = document.getElementById("wall-variance-value");
 const removeBorderInput = document.getElementById("remove-border");
@@ -204,6 +205,14 @@ if (wallStyleInput) {
   });
 }
 
+if (algorithmInput) {
+  algorithmInput.addEventListener("change", () => {
+    if (mazeNodes.matrix && mazeNodes.matrix.length) {
+      initMaze();
+    }
+  });
+}
+
 if (wallVarianceInput) {
   wallVarianceInput.addEventListener("input", () => {
     updateWallVarianceDisplay();
@@ -363,6 +372,10 @@ function initMaze() {
   const bias = document.getElementById("bias");
   if (bias) {
     settings["bias"] = bias.options[bias.selectedIndex].value;
+  }
+
+  if (algorithmInput) {
+    settings["algorithm"] = algorithmInput.value;
   }
 
   const maze = new Maze(settings);
