@@ -13,6 +13,15 @@ app = Flask(__name__)
 CORS(app)
 
 
+@app.route("/")
+def index() -> Any:
+    """Return a helpful message for the server root."""
+    return jsonify({
+        "service": "organic-maze",
+        "message": "Use /generate-organic-maze with width, height, num_points, and other query parameters.",
+    })
+
+
 def _parse_float(name: str, default: Optional[float] = None) -> Optional[float]:
     value = request.args.get(name, type=str)
     if value is None or value == "":

@@ -15,6 +15,7 @@ const wallVarianceValue = document.getElementById("wall-variance-value");
 const removeBorderInput = document.getElementById("remove-border");
 const extraExitsInput = document.getElementById("extra-exits");
 const organicOptionsContainer = document.getElementById("organic-options");
+const organicEndpointInput = document.getElementById("organic-endpoint");
 const organicWidthInput = document.getElementById("organic-width");
 const organicHeightInput = document.getElementById("organic-height");
 const organicPointInput = document.getElementById("organic-points");
@@ -164,6 +165,25 @@ const syncWallVarianceState = () => {
 };
 
 const isOrganicGraphStyle = () => wallStyleInput && wallStyleInput.value === "organic-graph";
+
+const getOrganicEndpoint = () => {
+  const rawValue = organicEndpointInput ? organicEndpointInput.value.trim() : "";
+  const fallback = typeof window !== "undefined" && window.location && window.location.origin
+    ? window.location.origin
+    : "http://localhost:5000";
+
+  if (!rawValue) {
+    return fallback;
+  }
+
+  try {
+    const url = new URL(rawValue, fallback);
+    return url.origin + (url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, ""));
+  } catch (error) {
+    console.error("Invalid organic endpoint, falling back to", fallback, error);
+    return fallback;
+  }
+};
 
 const toggleOrganicOptionVisibility = () => {
   const useOrganic = isOrganicGraphStyle();
@@ -563,7 +583,8 @@ async function renderOrganicMaze(settings) {
   }
 
   try {
-    const response = await fetch(`/generate-organic-maze?${params.toString()}`);
+    const endpointBase = getOrganicEndpoint();
+    const response = await fetch(`${endpointBase}/generate-organic-maze?${params.toString()}`);
     const payload = await response.json();
     if (!response.ok || payload.error) {
       const message = payload && payload.error ? payload.error : response.statusText;
@@ -583,7 +604,7 @@ async function renderOrganicMaze(settings) {
     return;
   } catch (error) {
     alert(
-      "Failed to reach the organic maze service. Please ensure the Flask server is running."
+      `Failed to reach the organic maze service at ${getOrganicEndpoint()}. Please ensure the Flask server is running.`
     );
     console.error(error);
   }
