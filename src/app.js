@@ -14,26 +14,6 @@ const wallVarianceInput = document.getElementById("wall-variance");
 const wallVarianceValue = document.getElementById("wall-variance-value");
 const removeBorderInput = document.getElementById("remove-border");
 const extraExitsInput = document.getElementById("extra-exits");
-const organicOptionsContainer = document.getElementById("organic-options");
-const organicEndpointInput = document.getElementById("organic-endpoint");
-const organicWidthInput = document.getElementById("organic-width");
-const organicHeightInput = document.getElementById("organic-height");
-const organicPointInput = document.getElementById("organic-points");
-const organicAlgorithmInput = document.getElementById("organic-algorithm");
-const organicJitterInput = document.getElementById("organic-jitter");
-const organicJitterPointsInput = document.getElementById("organic-jitter-points");
-const organicSeedInput = document.getElementById("organic-seed");
-const organicOnlyDisabledControls = [
-  document.getElementById("passage-size"),
-  removeBorderInput,
-  extraExitsInput,
-  document.getElementById("entry"),
-  document.getElementById("bias"),
-  document.getElementById("remove_walls"),
-  algorithmInput,
-];
-
-let lastMazeType = "grid";
 
 const wallSliderMin = wallSizeInput
   ? Math.max(1, parseInt(wallSizeInput.min, 10) || 1)
@@ -56,31 +36,6 @@ const parseBoundedInt = (input, fallback, minBound, maxBound) => {
 
   value = clamp(value, minBound, maxBound);
   input.value = value;
-  return value;
-};
-
-const parseNumberInput = (input, fallback, minBound, maxBound, { isFloat } = {}) => {
-  let value = fallback;
-  if (input) {
-    value = isFloat ? parseFloat(input.value) : parseInt(input.value, 10);
-  }
-
-  if (Number.isNaN(value)) {
-    value = fallback;
-  }
-
-  if (typeof minBound === "number") {
-    value = Math.max(minBound, value);
-  }
-
-  if (typeof maxBound === "number") {
-    value = Math.min(maxBound, value);
-  }
-
-  if (input) {
-    input.value = value;
-  }
-
   return value;
 };
 
@@ -147,7 +102,7 @@ const updateWallVarianceDisplay = () => {
   }
 
   const style = wallStyleInput ? wallStyleInput.value : "grid";
-  if (style === "grid" || style === "organic-graph" || style === "organic") {
+  if (style === "grid") {
     wallVarianceValue.textContent = "off";
   } else {
     wallVarianceValue.textContent = `${wallVarianceInput.value}%`;
@@ -160,61 +115,10 @@ const syncWallVarianceState = () => {
   }
 
   const style = wallStyleInput ? wallStyleInput.value : "grid";
-  wallVarianceInput.disabled =
-    style === "grid" || style === "organic-graph" || style === "organic";
+  wallVarianceInput.disabled = style === "grid";
   updateWallVarianceDisplay();
 };
 
-const isOrganicGraphStyle = () =>
-  wallStyleInput && (wallStyleInput.value === "organic-graph" || wallStyleInput.value === "organic");
-
-const getOrganicEndpoint = () => {
-  const rawValue = organicEndpointInput ? organicEndpointInput.value.trim() : "";
-  const fallback = typeof window !== "undefined" && window.location && window.location.origin
-    ? window.location.origin
-    : "http://127.0.0.1:5000";
-
-  if (!rawValue) {
-    return fallback;
-  }
-
-  try {
-    const url = new URL(rawValue, fallback);
-    return url.origin + (url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, ""));
-  } catch (error) {
-    console.error("Invalid organic endpoint, falling back to", fallback, error);
-    return fallback;
-  }
-};
-
-const toggleOrganicOptionVisibility = () => {
-  const useOrganic = isOrganicGraphStyle();
-  if (organicOptionsContainer) {
-    organicOptionsContainer.classList.toggle("hide", !useOrganic);
-  }
-
-  if (useOrganic) {
-    const solveButton = document.getElementById("solve");
-    if (solveButton && !solveButton.classList.contains("hide")) {
-      solveButton.classList.add("hide");
-    }
-  }
-
-  organicOnlyDisabledControls.forEach((control) => {
-    if (!control) {
-      return;
-    }
-    if (useOrganic) {
-      control.dataset.prevDisabled = control.disabled ? "1" : "0";
-      control.disabled = true;
-    } else if (control.dataset && typeof control.dataset.prevDisabled !== "undefined") {
-      control.disabled = control.dataset.prevDisabled === "1";
-      delete control.dataset.prevDisabled;
-    } else {
-      control.disabled = false;
-    }
-  });
-};
 
 if (wallSizeInput && wallSizeValue) {
   updateWallSizeDisplay();
@@ -295,35 +199,12 @@ if (wallRangeMaxInput) {
 if (wallStyleInput) {
   wallStyleInput.addEventListener("change", () => {
     syncWallVarianceState();
-    toggleOrganicOptionVisibility();
 
     if (mazeNodes.matrix && mazeNodes.matrix.length) {
       initMaze();
     }
   });
 }
-
-const organicInputs = [
-  organicWidthInput,
-  organicHeightInput,
-  organicPointInput,
-  organicAlgorithmInput,
-  organicJitterInput,
-  organicJitterPointsInput,
-  organicSeedInput,
-];
-
-organicInputs.forEach((input) => {
-  if (!input) {
-    return;
-  }
-  const eventName = input.tagName === "SELECT" ? "change" : "input";
-  input.addEventListener(eventName, () => {
-    if (isOrganicGraphStyle() && lastMazeType === "organic") {
-      initMaze();
-    }
-  });
-});
 
 if (algorithmInput) {
   algorithmInput.addEventListener("change", () => {
@@ -355,7 +236,6 @@ if (randomizeWallInput && randomizeWallInput.checked) {
 updateWallSizeDisplay();
 updatePassageDisplay();
 syncWallVarianceState();
-toggleOrganicOptionVisibility();
 
 // Check if globals are defined
 if (typeof maxMaze === "undefined") {
@@ -517,161 +397,10 @@ function initMaze() {
     mazeNodes = maze;
   }
 
-  lastMazeType = "grid";
-
   location.href = "#";
   location.href = "#generate";
 }
 
-
-const parseOptionalSeed = (input) => {
-  if (!input || input.value === "") {
-    return null;
-  }
-
-  const parsed = parseInt(input.value, 10);
-  if (Number.isNaN(parsed)) {
-    input.value = "";
-    return null;
-  }
-
-  return parsed;
-};
-
-async function renderOrganicMaze(settings) {
-  const canvas = document.getElementById("maze");
-  if (!canvas) {
-    return;
-  }
-
-  const solveButton = document.getElementById("solve");
-  if (solveButton && !solveButton.classList.contains("hide")) {
-    solveButton.classList.add("hide");
-  }
-
-  const width = parseNumberInput(organicWidthInput, 800, 10, 4000, {
-    isFloat: true,
-  });
-  const height = parseNumberInput(organicHeightInput, 600, 10, 4000, {
-    isFloat: true,
-  });
-  const numPoints = parseNumberInput(organicPointInput, 150, 20, 1000, {
-    isFloat: false,
-  });
-  const jitterMagnitude = parseNumberInput(organicJitterInput, 3, 0, 100, {
-    isFloat: true,
-  });
-  const jitterPoints = parseNumberInput(organicJitterPointsInput, 1, 0, 10, {
-    isFloat: false,
-  });
-  const seed = parseOptionalSeed(organicSeedInput);
-
-  const params = new URLSearchParams({
-    width: width.toString(),
-    height: height.toString(),
-    num_points: numPoints.toString(),
-    algorithm: organicAlgorithmInput
-      ? organicAlgorithmInput.value
-      : "kruskal",
-    jitter_magnitude: jitterMagnitude.toString(),
-    jitter_points: jitterPoints.toString(),
-  });
-  if (seed !== null) {
-    params.set("seed", seed.toString());
-  }
-
-  try {
-    const endpointBase = getOrganicEndpoint();
-    const response = await fetch(`${endpointBase}/generate-organic-maze?${params.toString()}`);
-    const payload = await response.json();
-    if (!response.ok || payload.error) {
-      const message = payload && payload.error ? payload.error : response.statusText;
-      alert(`Unable to generate organic maze: ${message}`);
-      return;
-    }
-
-    drawOrganicMaze(canvas, payload, settings);
-
-    if (download && download.classList.contains("hide")) {
-      download.classList.remove("hide");
-    }
-    mazeNodes = { matrix: [[0]] };
-    lastMazeType = "organic";
-    location.href = "#";
-    location.href = "#generate";
-    return;
-  } catch (error) {
-    alert(
-      `Failed to reach the organic maze service at ${getOrganicEndpoint()}. Please ensure the Flask server is running.`
-    );
-    console.error(error);
-  }
-}
-
-function drawOrganicMaze(canvas, layout, settings) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-
-  canvas.width = layout.width;
-  canvas.height = layout.height;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = settings.backgroundColor;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.strokeStyle = settings.color;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  const baseThickness = Math.max(1, settings.wallSize || 1);
-  const minThickness = settings.randomizeWalls
-    ? Math.max(1, settings.wallRandomMin || baseThickness)
-    : baseThickness;
-  const maxThickness = settings.randomizeWalls
-    ? Math.max(minThickness, settings.wallRandomMax || minThickness)
-    : baseThickness;
-
-  const getThickness = () => {
-    if (!settings.randomizeWalls) {
-      return baseThickness;
-    }
-    if (minThickness === maxThickness) {
-      return minThickness;
-    }
-    return minThickness + Math.random() * (maxThickness - minThickness);
-  };
-
-  const walls = Array.isArray(layout.walls) ? layout.walls : [];
-  for (let i = 0; i < walls.length; i++) {
-    const wall = walls[i];
-    const segments = [];
-    if (wall && wall.start) {
-      segments.push(wall.start);
-    }
-    if (wall && Array.isArray(wall.points_intermediate)) {
-      for (let j = 0; j < wall.points_intermediate.length; j++) {
-        segments.push(wall.points_intermediate[j]);
-      }
-    }
-    if (wall && wall.end) {
-      segments.push(wall.end);
-    }
-
-    if (segments.length < 2) {
-      continue;
-    }
-
-    ctx.beginPath();
-    ctx.moveTo(segments[0].x, segments[0].y);
-    for (let k = 1; k < segments.length; k++) {
-      ctx.lineTo(segments[k].x, segments[k].y);
-    }
-    ctx.lineWidth = getThickness();
-    ctx.stroke();
-  }
-}
 
 function downloadImage(e) {
   const image = document.getElementById("maze").toDataURL("image/png");
@@ -680,11 +409,6 @@ function downloadImage(e) {
 }
 
 function initSolve() {
-  if (lastMazeType !== "grid") {
-    alert("Solving is only available for grid-based mazes.");
-    return;
-  }
-
   const solveButton = document.getElementById("solve");
   if (solveButton) {
     solveButton.classList.toggle("hide");
