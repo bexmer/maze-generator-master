@@ -393,7 +393,7 @@ const download = document.getElementById("download");
 download.addEventListener("click", downloadImage, false);
 download.setAttribute("download", "maze.png");
 
-async function initMaze() {
+function initMaze() {
   download.setAttribute("download", "maze.png");
   download.innerHTML = "download maze";
 
@@ -499,11 +499,6 @@ async function initMaze() {
     settings["algorithm"] = algorithmInput.value;
   }
 
-  if (wallStyle === "organic-graph" || wallStyle === "organic") {
-    await renderOrganicMaze(settings);
-    return;
-  }
-
   const maze = new Maze(settings);
   maze.generate();
   maze.draw();
@@ -527,6 +522,7 @@ async function initMaze() {
   location.href = "#";
   location.href = "#generate";
 }
+
 
 const parseOptionalSeed = (input) => {
   if (!input || input.value === "") {
