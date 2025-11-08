@@ -268,11 +268,15 @@ def generate_organic_maze(
     else:
         raise ValueError("algorithm must be either 'prim' or 'kruskal'")
 
-    mst_set = {edge for edge in mst_edges}
+    def _normalise(edge: Edge) -> Edge:
+        u, v = edge
+        return (u, v) if u < v else (v, u)
+
+    mst_set = {_normalise(edge) for edge in mst_edges}
 
     walls: List[Dict[str, object]] = []
     for edge, weight in raw_edges.items():
-        if edge in mst_set:
+        if _normalise(edge) in mst_set:
             continue
         start = tuple(points[edge[0]])
         end = tuple(points[edge[1]])
