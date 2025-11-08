@@ -66,10 +66,17 @@ def generate_organic_maze_route() -> Any:
             jitter_points=jitter_points if jitter_points is not None else 1,
             seed=seed,
         )
+        wall_count = len(layout.get("walls", [])) if isinstance(layout, dict) else "unknown"
+        print(f"Laberinto generado. Total de paredes enviadas: {wall_count}")
         return jsonify(layout)
     except ValueError as error:
+        print(f"Error al generar el laberinto: {error}")
         response: Dict[str, Any] = {"error": str(error)}
         return jsonify(response), 400
+    except Exception as error:  # pragma: no cover - defensive logging
+        print(f"Error inesperado al generar el laberinto: {error}")
+        response: Dict[str, Any] = {"error": str(error)}
+        return jsonify(response), 500
 
 
 if __name__ == "__main__":
