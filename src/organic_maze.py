@@ -268,15 +268,16 @@ def generate_organic_maze(
     else:
         raise ValueError("algorithm must be either 'prim' or 'kruskal'")
 
-    def _normalise(edge: Edge) -> Edge:
-        u, v = edge
-        return (u, v) if u < v else (v, u)
+    def _edge_key(edge: Edge) -> frozenset[int]:
+        """Return an orientation-agnostic key for an undirected edge."""
 
-    mst_set = {_normalise(edge) for edge in mst_edges}
+        return frozenset(edge)
+
+    mst_set = {_edge_key(edge) for edge in mst_edges}
 
     walls: List[Dict[str, object]] = []
     for edge, weight in raw_edges.items():
-        if _normalise(edge) in mst_set:
+        if _edge_key(edge) in mst_set:
             continue
         start = tuple(points[edge[0]])
         end = tuple(points[edge[1]])
