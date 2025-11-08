@@ -43,6 +43,10 @@
 			.color-picker {
 				margin-left: 5px;
 			}
+			.value-display {
+				margin-left: 0.75em;
+				font-size: 0.9em;
+			}
 			.palette {
 				margin: 1.5em 0 0 10em;
 				width: 270px;
@@ -61,15 +65,22 @@
 				cursor:pointer;
 				display: inline-block;
 			}
-			.palette div:focus {
-				outline-width: 2px;
-				outline-style: dashed;
-			}
-			.screen-reader-text {
-				border: 0;
-				clip: rect(1px, 1px, 1px, 1px);
-				-webkit-clip-path: inset(50%);
-				clip-path: inset(50%);
+                        .palette div:focus {
+                                outline-width: 2px;
+                                outline-style: dashed;
+                        }
+                        .range-separator {
+                                margin: 0 0.5em;
+                                display: inline-block;
+                        }
+                        p.random-range input[type="number"] {
+                                width: 5em;
+                        }
+                        .screen-reader-text {
+                                border: 0;
+                                clip: rect(1px, 1px, 1px, 1px);
+                                -webkit-clip-path: inset(50%);
+                                clip-path: inset(50%);
 				height: 1px;
 				margin: -1px;
 				overflow: hidden;
@@ -110,35 +121,86 @@
 		<h1>Maze Generator</h1>
 		<p>
 			Create, solve and download random maze puzzles in any size or color with this online tool. Enter the values for your maze design below and click the "Generate Maze" button.</p>
-		<p>
-			The <a href="https://en.wikipedia.org/wiki/Maze_generation_algorithm#Recursive_backtracker">recursive backtracking algorithm</a> is used to create the mazes.
-			For more information check out the <a href="https://github.com/keesiemeijer/maze-generator">Github Repository</a>.
-		</p>
+                <p>
+                        The generator now supports multiple algorithms. By default it uses the classic <a href="https://en.wikipedia.org/wiki/Maze_generation_algorithm#Randomized_Prim's_algorithm">randomized Prim's method</a>,
+                        and you can switch back to <a href="https://en.wikipedia.org/wiki/Maze_generation_algorithm#Recursive_backtracker">recursive backtracking</a> if you prefer.
+                        For more information check out the <a href="https://github.com/keesiemeijer/maze-generator">Github Repository</a>.
+                </p>
 		<hr>
 		<div class="controls">
-			<p>
-				<label for="wall-size">Wall thickness:</label>
-				<input id="wall-size" type="number" name="" value="10" min="1">
-			</p>
+                        <p>
+                                <label for="wall-size">Wall thickness:</label>
+                                <input id="wall-size" type="range" name="wall-size" value="10" min="1" max="40">
+                                <span id="wall-size-value" class="value-display">10 px</span>
+                        </p>
+                        <p>
+                                <label for="randomize-wall">Randomize wall thickness:</label>
+                                <input id="randomize-wall" type="checkbox" name="randomize-wall" value="1">
+                        </p>
+                        <p class="random-range">
+                                <label for="wall-size-min">Wall thickness range (px):</label>
+                                <input id="wall-size-min" type="number" name="wall-size-min" value="6" min="1" max="60">
+                                <span aria-hidden="true" class="range-separator">to</span>
+                                <input id="wall-size-max" type="number" name="wall-size-max" value="18" min="1" max="60">
+                        </p>
+                        <p>
+                                <label for="passage-size">Passage width:</label>
+                                <input id="passage-size" type="range" name="passage-size" value="10" min="1" max="60">
+                                <span id="passage-size-value" class="value-display">10 px</span>
+                        </p>
+                        <p>
+                                <label for="algorithm">Maze algorithm:</label>
+                                <select id="algorithm" name="algorithm">
+                                        <option value="prim" selected="selected">randomized Prim</option>
+                                        <option value="backtracker">recursive backtracker</option>
+                                </select>
+                        </p>
+                        <p>
+                                <label for="wall-style">Wall style:</label>
+                                <select id="wall-style" name="wall-style">
+                                        <option value="grid" selected="selected">grid</option>
+                                        <option value="curved">curved</option>
+                                        <option value="angled">angled</option>
+                                        <option value="organic">organic mix</option>
+                                </select>
+                        </p>
+                        <p>
+                                <label for="wall-variance">Shape variance:</label>
+                                <input id="wall-variance" type="range" name="wall-variance" value="55" min="0" max="100">
+                                <span id="wall-variance-value" class="value-display">55%</span>
+                        </p>
+                        
 
-			<p>
-				<label for="width">Columns:</label>
-				<input id="width" type="number" name="width" value="20" min="3" max="200">
-			</p>
+                        <p>
+                                <label for="remove-border">Remove outer border:</label>
+                                <input id="remove-border" type="checkbox" name="remove-border" value="1">
+                        </p>
+
+                        <p>
+                                <label for="extra-exits">Extra exits:</label>
+                                <input id="extra-exits" type="number" name="extra-exits" value="0" min="0" max="400">
+                        </p>
+
+                        <p>
+                                <label for="width">Columns:</label>
+                                <input id="width" type="number" name="width" value="20" min="3" max="200">
+                        </p>
 
 			<p>
 				<label for="height">Rows:</label>
 				<input id="height" type="number" name="height" value="20" min="3" max="200">
 			</p>
 			<p>
-				<label for="entry">Maze entries:</label>
-				<select id="entry" name="entry">
-					<option value="">none</option>
-					<option value="diagonal" selected="selected">diagonal</option>
-					<option value="horizontal">left and right</option>
-					<option value="vertical">top and bottom</option>
-				</select>
-			</p>
+                                <label for="entry">Maze entries:</label>
+                                <select id="entry" name="entry">
+                                        <option value="">none</option>
+                                        <option value="diagonal" selected="selected">diagonal</option>
+                                        <option value="horizontal">left and right</option>
+                                        <option value="vertical">top and bottom</option>
+                                        <option value="all">all sides</option>
+                                        <option value="random">random</option>
+                                </select>
+                        </p>
 			<p>
 				<label for="bias">Bias:</label>
 				<select id="bias" name="bias">
