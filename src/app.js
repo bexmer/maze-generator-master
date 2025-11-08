@@ -147,7 +147,7 @@ const updateWallVarianceDisplay = () => {
   }
 
   const style = wallStyleInput ? wallStyleInput.value : "grid";
-  if (style === "grid" || style === "organic-graph") {
+  if (style === "grid" || style === "organic-graph" || style === "organic") {
     wallVarianceValue.textContent = "off";
   } else {
     wallVarianceValue.textContent = `${wallVarianceInput.value}%`;
@@ -160,17 +160,19 @@ const syncWallVarianceState = () => {
   }
 
   const style = wallStyleInput ? wallStyleInput.value : "grid";
-  wallVarianceInput.disabled = style === "grid" || style === "organic-graph";
+  wallVarianceInput.disabled =
+    style === "grid" || style === "organic-graph" || style === "organic";
   updateWallVarianceDisplay();
 };
 
-const isOrganicGraphStyle = () => wallStyleInput && wallStyleInput.value === "organic-graph";
+const isOrganicGraphStyle = () =>
+  wallStyleInput && (wallStyleInput.value === "organic-graph" || wallStyleInput.value === "organic");
 
 const getOrganicEndpoint = () => {
   const rawValue = organicEndpointInput ? organicEndpointInput.value.trim() : "";
   const fallback = typeof window !== "undefined" && window.location && window.location.origin
     ? window.location.origin
-    : "http://localhost:5000";
+    : "http://127.0.0.1:5000";
 
   if (!rawValue) {
     return fallback;
@@ -497,7 +499,7 @@ async function initMaze() {
     settings["algorithm"] = algorithmInput.value;
   }
 
-  if (wallStyle === "organic-graph") {
+  if (wallStyle === "organic-graph" || wallStyle === "organic") {
     await renderOrganicMaze(settings);
     return;
   }
@@ -557,7 +559,7 @@ async function renderOrganicMaze(settings) {
   const height = parseNumberInput(organicHeightInput, 600, 10, 4000, {
     isFloat: true,
   });
-  const numPoints = parseNumberInput(organicPointInput, 200, 3, 5000, {
+  const numPoints = parseNumberInput(organicPointInput, 150, 20, 1000, {
     isFloat: false,
   });
   const jitterMagnitude = parseNumberInput(organicJitterInput, 3, 0, 100, {
